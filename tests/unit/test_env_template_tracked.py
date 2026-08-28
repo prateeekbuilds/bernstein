@@ -66,10 +66,7 @@ def _find_copy_references() -> list[tuple[Path, int, Path]]:
         # meaning it literally (e.g. a lint rule example or a plan template).
         # The issue's scope correction identifies these explicitly.
         rel_parts = Path(rel_path).parts
-        if any(
-            part in ("examples", "fixtures", "templates")
-            for part in rel_parts
-        ):
+        if any(part in ("examples", "fixtures", "templates") for part in rel_parts):
             continue
         try:
             text = path.read_text(encoding="utf-8")
@@ -77,28 +74,30 @@ def _find_copy_references() -> list[tuple[Path, int, Path]]:
             continue
         for lineno, line in enumerate(text.splitlines(), start=1):
             if _COPY_ENV_EXAMPLE.search(line):
-                # The issue's scope correction: docs that *quote* the phrase
-                # as example text (not as a real instruction) are excluded.
-                # skill-lint.md line 34 quotes it as linter example text;
-                # observability-overview.md line 322 lists allow-list patterns.
-                # Both were checked and are not real copy instructions.
-                if _is_quoted_example(line):
-                    continue
-                env_example = path.parent / ".env.example"
-                references.append((path, lineno, env_example))
+                references.append((path, lineno, _candidate_templates(path)))
 
     return references
 
 
-def _is_quoted_example(line: str) -> bool:
-    """Heuristic: the line is quoting the phrase, not instructing the reader."""
-    # Lines inside code fences, or that talk about linting / scanning the
-    # phrase rather than asking the reader to execute it.
-    lower = line.lower()
-    return any(
-        marker in lower
-        for marker in ("allow-list", "allowlist", "must *not* flag", "must not flag", "linter", "scanner")
-    )
+def _candidate_templates(source: Path) -> tuple[Path, ...]:
+    """Where a reader of *source* could find the template it names.
+
+    Two places, in the order a reader would look: beside the file that gives
+    the instruction, then the repository root.
+
+    Resolving to the sibling alone asks the wrong question. Whether a line is
+    a real instruction or prose describing one cannot be told apart by its
+    wording - the first attempt here matched on a dictionary of tokens
+    ("linter", "allow-list") and its first miss was this change's own release
+    note, which quotes `cp .env.example .env` while describing the fix and
+    was read as demanding a template inside `docs/release-notes/fragments/`.
+
+    Asking whether the reader can reach a tracked template needs no such
+    guess: prose is satisfied by the root template, and the regression this
+    guard exists for - the root template silently untracked - still fails,
+    because then neither candidate resolves.
+    """
+    return (source.parent / ".env.example", REPO_ROOT / ".env.example")
 
 
 def test_every_env_example_reference_is_tracked() -> None:
@@ -112,17 +111,16 @@ def test_every_env_example_reference_is_tracked() -> None:
     )
 
     missing: list[str] = []
-    for source, lineno, env_example in references:
-        rel = env_example.relative_to(REPO_ROOT)
-        if not env_example.is_file():
-            missing.append(
-                f"  {source.relative_to(REPO_ROOT)}:{lineno} → {rel} (file does not exist)"
-            )
-        elif str(rel) not in tracked:
-            missing.append(
-                f"  {source.relative_to(REPO_ROOT)}:{lineno} → {rel} "
-                f"(file exists but is NOT tracked — check .gitignore)"
-            )
+    for source, lineno, candidates in references:
+        # Tracked, not merely present: on the machine where the template
+        # exists but .gitignore swallows it, a filesystem check passes and
+        # every clone of the repository still has nothing to copy.
+        if any(str(c.relative_to(REPO_ROOT)) in tracked for c in candidates):
+            continue
+        where = " or ".join(str(c.relative_to(REPO_ROOT)) for c in candidates)
+        present = [c for c in candidates if c.is_file()]
+        why = "exists but is NOT tracked - check .gitignore" if present else "no such file"
+        missing.append(f"  {source.relative_to(REPO_ROOT)}:{lineno} -> {where} ({why})")
 
     assert not missing, (
         "The following files instruct readers to copy .env.example, but the "
