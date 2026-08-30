@@ -273,15 +273,29 @@ def test_export_step_access_control_and_retention_policy_commented() -> None:
 
 
 def test_export_step_with_sink_set_executes_export(tmp_path: Path) -> None:
-    """When SOC2_EVIDENCE_SINK is set, the step invokes the exporter without warnings."""
+    """When SOC2_EVIDENCE_SINK is set, the step invokes the exporter without warnings.
+
+    The workflow's ``run:`` block calls ``uv run python -c "from bernstein..."``
+    which requires both ``uv`` on PATH and a project context to resolve the
+    import.  We run from the **repo root** (so ``uv run`` finds the
+    ``pyproject.toml``) and temporarily create the evidence files under the
+    repo's ``.sdd/evidence/soc2/`` directory, cleaning up afterwards.
+    """
     pack = _job("pack")
     run = _step_by_name(pack, "Export evidence pack to sink").get("run", "")
     assert isinstance(run, str)
 
-    evidence_dir = tmp_path / ".sdd" / "evidence" / "soc2"
-    evidence_dir.mkdir(parents=True)
-    (evidence_dir / "soc2-evidence-weekly.md").write_text("# Weekly", encoding="utf-8")
-    (evidence_dir / "soc2-evidence-weekly.json").write_text("{}", encoding="utf-8")
+    # Create evidence files under the repo root so `uv run python` can
+    # resolve them via the relative `.sdd/evidence/soc2` path used in the
+    # workflow script.
+    evidence_dir = REPO_ROOT / ".sdd" / "evidence" / "soc2"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    md_file = evidence_dir / "soc2-evidence-weekly.md"
+    json_file = evidence_dir / "soc2-evidence-weekly.json"
+    md_created = not md_file.exists()
+    json_created = not json_file.exists()
+    md_file.write_text("# Weekly", encoding="utf-8")
+    json_file.write_text("{}", encoding="utf-8")
 
     output_path = tmp_path / "github_output.txt"
     summary_path = tmp_path / "github_step_summary.txt"
@@ -290,6 +304,7 @@ def test_export_step_with_sink_set_executes_export(tmp_path: Path) -> None:
 
     env = {
         "PATH": os.environ.get("PATH", ""),
+        "HOME": os.environ.get("HOME", ""),
         "GITHUB_OUTPUT": str(output_path),
         "GITHUB_STEP_SUMMARY": str(summary_path),
         "PERIOD_LABEL": "weekly",
@@ -297,16 +312,25 @@ def test_export_step_with_sink_set_executes_export(tmp_path: Path) -> None:
         "SOC2_EVIDENCE_SINK": "local_fs",
     }
 
-    proc = subprocess.run(
-        ["bash", "-c", run],
-        cwd=tmp_path,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            ["bash", "-c", run],
+            cwd=REPO_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        # Clean up evidence files we created under the repo root.
+        if md_created and md_file.exists():
+            md_file.unlink()
+        if json_created and json_file.exists():
+            json_file.unlink()
 
-    assert proc.returncode == 0
+    assert proc.returncode == 0, (
+        f"export step failed (rc={proc.returncode}).\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}"
+    )
     assert "SOC2_EVIDENCE_SINK detected" in proc.stdout
     assert "::warning::" not in proc.stdout
     assert summary_path.read_text(encoding="utf-8") == ""
