@@ -6,8 +6,9 @@ Proven by:
 - ``--dry-run`` over the same config contacts the adapter zero times;
 - two sweeps over identical state produce identical chain records apart from
   their timestamps;
-- a tracker raising mid-sweep leaves the other stages executed and its failure
-  in the record;
+- a tracker raising mid-sweep leaves the other stages executed, records the
+  failure in the audit chain, and exits non-zero;
+- configured trackers missing from registry are recorded in errors and exit non-zero;
 - a test that fails if ``build_pipeline_from_yaml`` again has no caller in ``src/``.
 """
 
@@ -149,8 +150,8 @@ def test_sweep_claims_and_releases_expected_handoffs_at_adapter_boundary(
     # Boundary assertions: verify adapter was called directly
     assert len(adapter.comments) == 2
     assert len(adapter.transitions) == 2
-    assert adapter.transitions[0] == ("PROJ-1", "done", adapter.transitions[0][2])
-    assert adapter.transitions[1] == ("PROJ-2", "done", adapter.transitions[1][2])
+    assert adapter.transitions[0][:2] == ("PROJ-1", "done")
+    assert adapter.transitions[1][:2] == ("PROJ-2", "done")
 
     # Comments contain structured success block
     assert "bernstein:success" in adapter.comments[0][1]
@@ -257,31 +258,70 @@ orchestration:
 
     # All details fields match exactly except prev_chain_digest (which depends on store genesis)
     assert d1["config_digest"] == d2["config_digest"]
+    assert d1["trackers_configured"] == d2["trackers_configured"]
     assert d1["trackers_contacted"] == d2["trackers_contacted"]
-    assert d1["handoffs_claimed"] == d2["handoffs_claimed"]
-    assert d1["handoffs_released"] == d2["handoffs_released"]
+    assert d1["handoffs"] == d2["handoffs"]
     assert d1["stage_outcomes"] == d2["stage_outcomes"]
+    assert d1["status"] == d2["status"]
 
 
 def test_tracker_raising_mid_sweep_leaves_other_stages_executed_and_recorded(
     tmp_path: Path,
 ) -> None:
-    """A tracker raising mid-sweep leaves other stages executed and its failure in the record."""
+    """A tracker raising mid-sweep records the failure in the event and exits non-zero."""
     failing_adapter = FakeSweepTrackerAdapter(raise_on_pull=True)
     register_tracker("fake_sweep", lambda **kw: failing_adapter, overwrite=True)
 
     state_root = tmp_path / ".sdd"
-    code, _output = _run_cli(tmp_path, _PIPELINE_CONFIG)
-    assert code == 0
+    code, output = _run_cli(tmp_path, _PIPELINE_CONFIG)
+    # Must exit non-zero on tracker failure so cron/operators alert
+    assert code != 0
+    assert "error" in output.lower()
 
     chain = AuditChainStore(state_root / "audit")
     events = chain.query(event_type="tracker_pipeline.sweep")
     assert len(events) == 1
     details = events[0].details
+    assert details["trackers_configured"] == ["fake_sweep"]
     assert details["trackers_contacted"] == ["fake_sweep"]
-    assert details["handoffs_claimed"] == []
-    # Both stages were evaluated and marked idle
-    assert details["stage_outcomes"] == {"engineer": "idle", "qa": "idle"}
+    assert details["handoffs"] == []
+    assert details["status"] == "failed"
+    assert details["errors"] is not None
+    assert any("network timeout" in e for e in details["errors"])
+    # Both stages were evaluated and marked error
+    assert details["stage_outcomes"] == {"engineer": "error", "qa": "error"}
+
+
+def test_configured_tracker_missing_from_registry_recorded_as_error_and_exits_nonzero(
+    tmp_path: Path,
+) -> None:
+    """A configured tracker not found in the registry is recorded in the receipt and exits non-zero."""
+    config = """
+trackers:
+  unregistered_tracker:
+    api_key: secret
+
+orchestration:
+  tracker_pipeline:
+    pipeline_stages:
+      - role: engineer
+        claim_status: todo
+        success_status: done
+        failure_status: failed
+"""
+    state_root = tmp_path / ".sdd"
+    code, output = _run_cli(tmp_path, config)
+    assert code != 0
+    assert "not found in registry" in output
+
+    chain = AuditChainStore(state_root / "audit")
+    events = chain.query(event_type="tracker_pipeline.sweep")
+    assert len(events) == 1
+    details = events[0].details
+    assert details["trackers_configured"] == ["unregistered_tracker"]
+    assert details["trackers_contacted"] == []
+    assert details["status"] == "failed"
+    assert any("unregistered_tracker" in e for e in details["errors"])
 
 
 def test_build_pipeline_from_yaml_has_caller_in_src() -> None:

@@ -8893,10 +8893,12 @@ def record_tracker_pipeline_sweep(
     *,
     chain: AuditChainStore,
     config_digest: str,
+    trackers_configured: Sequence[str],
     trackers_contacted: Sequence[str],
-    handoffs_claimed: Sequence[dict[str, Any]],
-    handoffs_released: Sequence[dict[str, Any]],
+    handoffs: Sequence[dict[str, Any]],
     stage_outcomes: Mapping[str, str],
+    status: str = "ok",
+    errors: Sequence[str] | None = None,
     actor: str = "pipeline_runner",
     resource_id: str | None = None,
 ) -> AuditEvent:
@@ -8904,16 +8906,18 @@ def record_tracker_pipeline_sweep(
 
     Records the outcome of a single sweep of the tracker pipeline into the
     HMAC-chained audit log so an operator can prove, from the chain alone,
-    that a scheduled sweep ran, which trackers were contacted, and which
-    handoffs were processed.
+    that a scheduled sweep ran, which trackers were configured vs contacted,
+    which handoffs were processed, and whether any errors occurred.
 
     Args:
         chain: The audit chain store accepting the entry.
         config_digest: SHA-256 digest of the resolved pipeline config.
+        trackers_configured: Ordered list of tracker adapter names configured.
         trackers_contacted: Ordered list of tracker adapter names contacted.
-        handoffs_claimed: List of handoff claim summaries emitted during the sweep.
-        handoffs_released: List of handoff release summaries emitted during the sweep.
+        handoffs: List of open/emitted handoff payloads produced during the sweep.
         stage_outcomes: Mapping of stage/role to outcome status string.
+        status: Overall sweep status (e.g. ``"ok"`` or ``"failed"``).
+        errors: Optional list of error messages recorded during the sweep.
         actor: Actor recording the sweep; defaults to ``"pipeline_runner"``.
         resource_id: Optional resource ID; defaults to ``config_digest``.
 
@@ -8921,18 +8925,22 @@ def record_tracker_pipeline_sweep(
         The recorded :class:`AuditEvent` with ``prev_chain_digest`` embedded in
         its details payload.
     """
+    details: dict[str, Any] = {
+        "config_digest": config_digest,
+        "trackers_configured": list(trackers_configured),
+        "trackers_contacted": list(trackers_contacted),
+        "handoffs": list(handoffs),
+        "stage_outcomes": dict(stage_outcomes),
+        "status": status,
+    }
+    if errors:
+        details["errors"] = list(errors)
     return chain.log_with_prev_digest(
         event_type=EVENT_TRACKER_PIPELINE_SWEEP,
         actor=actor,
         resource_type="tracker_pipeline",
         resource_id=resource_id or config_digest,
-        details={
-            "config_digest": config_digest,
-            "trackers_contacted": list(trackers_contacted),
-            "handoffs_claimed": list(handoffs_claimed),
-            "handoffs_released": list(handoffs_released),
-            "stage_outcomes": dict(stage_outcomes),
-        },
+        details=details,
     )
 
 
@@ -9210,6 +9218,7 @@ __all__ = [
     "record_task_tier_decision",
     "record_thread_approval",
     "record_tournament_selection",
+    "record_tracker_pipeline_sweep",
     "record_trajectory_receipt",
     "record_update_advisory",
     "record_verifier_tier",

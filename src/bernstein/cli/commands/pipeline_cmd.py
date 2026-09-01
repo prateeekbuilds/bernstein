@@ -39,16 +39,84 @@ from bernstein.core.security.audit_chain import (
     AuditChainStore,
     record_tracker_pipeline_sweep,
 )
+from bernstein.core.trackers.contract import (
+    AbstractTrackerAdapter,
+    AttachResult,
+    ClaimResult,
+    CommentResult,
+    Ticket,
+    TransitionResult,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
-    from bernstein.core.trackers.contract import AbstractTrackerAdapter, Ticket
+    from collections.abc import Iterator, Mapping
 
 logger = logging.getLogger(__name__)
 
 
 SDD_ROOT_RELPATH = Path(".sdd")
+
+
+class _TrackingTrackerAdapter(AbstractTrackerAdapter):
+    """Wraps a tracker adapter to capture runtime sweep exceptions."""
+
+    def __init__(self, name: str, inner: AbstractTrackerAdapter, error_sink: list[str]) -> None:
+        self.name = name
+        self._inner = inner
+        self._error_sink = error_sink
+
+    def pull_open_tickets(self, filter: dict[str, Any] | None = None) -> Iterator[Ticket]:
+        try:
+            return self._inner.pull_open_tickets(filter)
+        except Exception as exc:
+            self._error_sink.append(f"tracker {self.name!r} pull_open_tickets failed: {exc}")
+            raise
+
+    def add_comment(
+        self,
+        ticket_id: str,
+        body: str,
+        *,
+        idempotency_key: str | None = None,
+    ) -> CommentResult:
+        try:
+            return self._inner.add_comment(ticket_id, body, idempotency_key=idempotency_key)
+        except Exception as exc:
+            self._error_sink.append(f"tracker {self.name!r} ticket {ticket_id!r} add_comment failed: {exc}")
+            raise
+
+    def transition(
+        self,
+        ticket_id: str,
+        status_id: str,
+        *,
+        idempotency_key: str | None = None,
+        etag: str | None = None,
+    ) -> TransitionResult:
+        try:
+            return self._inner.transition(ticket_id, status_id, idempotency_key=idempotency_key, etag=etag)
+        except Exception as exc:
+            self._error_sink.append(f"tracker {self.name!r} ticket {ticket_id!r} transition failed: {exc}")
+            raise
+
+    def claim_ticket(
+        self,
+        ticket_id: str,
+        agent_id: str,
+        *,
+        etag: str | None = None,
+    ) -> ClaimResult:
+        return self._inner.claim_ticket(ticket_id, agent_id, etag=etag)
+
+    def attach_blob(
+        self,
+        ticket_id: str,
+        blob: bytes,
+        mime: str,
+        *,
+        idempotency_key: str | None = None,
+    ) -> AttachResult:
+        return self._inner.attach_blob(ticket_id, blob, mime, idempotency_key=idempotency_key)
 
 
 class _CliDispatcher:
@@ -127,8 +195,9 @@ def run_cmd(
         return
 
     raw_block = _load_pipeline_block(target_path)
+    sweep_errors: list[str] = []
     tracker_configs = _load_tracker_configurations(target_path, fallback_path=config_path)
-    trackers = _instantiate_trackers(tracker_configs)
+    trackers, init_errors = _instantiate_trackers(tracker_configs, sweep_errors)
 
     dispatcher = _CliDispatcher()
     pipeline = build_pipeline_from_yaml(
@@ -140,39 +209,48 @@ def run_cmd(
 
     try:
         pipeline.tick()
-    except Exception:
+    except Exception as exc:
         logger.exception("pipeline sweep encountered an unhandled exception")
+        sweep_errors.append(f"pipeline.tick() failed: {exc}")
 
-    if target_path.exists():
-        config_digest = hashlib.sha256(target_path.read_bytes()).hexdigest()
-    else:
-        config_digest = hashlib.sha256(b"").hexdigest()
+    config_digest = hashlib.sha256(target_path.read_bytes()).hexdigest()
+    all_errors = init_errors + sweep_errors
 
     stage_outcomes: dict[str, str] = {}
     for stage in config.pipeline_stages:
         stage_handoffs = [h for h in pipeline.handoffs if h.role == stage.role]
-        if not stage_handoffs:
-            stage_outcomes[stage.role] = "idle"
-        elif all(h.outcome == "success" for h in stage_handoffs):
-            stage_outcomes[stage.role] = "success"
-        elif all(h.outcome == "failure" for h in stage_handoffs):
-            stage_outcomes[stage.role] = "failure"
+        if all_errors:
+            if not stage_handoffs:
+                stage_outcomes[stage.role] = "error"
+            elif all(h.outcome == "success" for h in stage_handoffs):
+                stage_outcomes[stage.role] = "partial_error"
+            else:
+                stage_outcomes[stage.role] = "failure"
         else:
-            stage_outcomes[stage.role] = "partial"
+            if not stage_handoffs:
+                stage_outcomes[stage.role] = "idle"
+            elif all(h.outcome == "success" for h in stage_handoffs):
+                stage_outcomes[stage.role] = "success"
+            elif all(h.outcome == "failure" for h in stage_handoffs):
+                stage_outcomes[stage.role] = "failure"
+            else:
+                stage_outcomes[stage.role] = "partial"
 
+    audit_dir = state_root / "audit"
     try:
-        audit_dir = state_root / "audit"
         chain = AuditChainStore(audit_dir)
         record_tracker_pipeline_sweep(
             chain=chain,
             config_digest=config_digest,
+            trackers_configured=list(tracker_configs.keys()),
             trackers_contacted=list(trackers.keys()),
-            handoffs_claimed=[h.to_payload() for h in pipeline.handoffs],
-            handoffs_released=[h.to_payload() for h in pipeline.handoffs],
+            handoffs=pipeline.open_handoffs(),
             stage_outcomes=stage_outcomes,
+            status="ok" if not all_errors else "failed",
+            errors=all_errors if all_errors else None,
         )
     except Exception as exc:
-        logger.debug("audit chain record failed: %s", exc)
+        raise click.ClickException(f"Failed to record sweep audit chain entry: {exc}") from exc
 
     if pipeline.handoffs:
         from rich.table import Table
@@ -195,10 +273,16 @@ def run_cmd(
         console.print(table)
     else:
         tracker_count = len(trackers)
-        if tracker_count == 0:
+        if tracker_count == 0 and not all_errors:
             console.print("[dim]Sweep complete: 0 trackers configured; 0 handoffs.[/dim]")
-        else:
+        elif not all_errors:
             console.print(f"[dim]Sweep complete: {tracker_count} tracker(s) contacted; 0 handoffs.[/dim]")
+
+    if all_errors:
+        console.print(f"[red]Sweep completed with {len(all_errors)} error(s):[/red]")
+        for err in all_errors:
+            console.print(f"  [red]• {err}[/red]")
+        raise click.ClickException(f"Tracker pipeline sweep failed with {len(all_errors)} error(s)")
 
 
 @pipeline_group.command("status")
@@ -381,8 +465,8 @@ def _load_tracker_configurations(
             continue
         try:
             data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-        except Exception:
-            continue
+        except yaml.YAMLError as exc:
+            raise click.ClickException(f"{p}: {exc}") from exc
         if not isinstance(data, dict):
             continue
         raw_trackers = data.get("trackers")
@@ -413,7 +497,8 @@ def _load_tracker_configurations(
 
 def _instantiate_trackers(
     tracker_configs: dict[str, dict[str, Any]],
-) -> dict[str, AbstractTrackerAdapter]:
+    sweep_errors: list[str],
+) -> tuple[dict[str, AbstractTrackerAdapter], list[str]]:
     """Resolve and construct tracker adapters from the registry."""
     from bernstein.core.trackers.registry import (
         discover_plugin_trackers,
@@ -427,12 +512,18 @@ def _instantiate_trackers(
         logger.debug("plugin tracker discovery failed: %s", exc)
 
     adapters: dict[str, AbstractTrackerAdapter] = {}
+    init_errors: list[str] = []
     for name, cfg in tracker_configs.items():
         if name not in registry:
-            logger.warning("Configured tracker %r not found in registry", name)
+            err = f"Configured tracker {name!r} not found in registry"
+            logger.warning(err)
+            init_errors.append(err)
             continue
         try:
-            adapters[name] = registry.create(name, **cfg)
+            raw_adapter = registry.create(name, **cfg)
+            adapters[name] = _TrackingTrackerAdapter(name, raw_adapter, sweep_errors)
         except Exception as exc:
-            logger.warning("Failed to instantiate tracker adapter %r: %s", name, exc)
-    return adapters
+            err = f"Failed to instantiate tracker adapter {name!r}: {exc}"
+            logger.warning(err)
+            init_errors.append(err)
+    return adapters, init_errors
