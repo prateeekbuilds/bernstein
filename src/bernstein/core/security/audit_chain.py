@@ -32,7 +32,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Sequence
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
     from pathlib import Path
 
 from bernstein.core.security.agent_card_signer import canonicalize_jcs
@@ -984,6 +984,13 @@ EVENT_CONVENTION_RETIRED = "convention.retired"
 #: attestation fails ``bernstein audit verify`` exactly like any tampered
 #: chain entry.
 EVENT_EQUIVALENCE_ATTESTATION = "eval.equivalence_attestation"
+
+#: Issue #4916 -- emitted whenever ``bernstein pipeline run`` executes a
+#: tracker pipeline sweep. The event records the pipeline configuration
+#: digest (SHA-256), the list of trackers contacted, the handoffs claimed
+#: and released, and the outcome per stage, allowing scheduled sweeps
+#: to be audited and offline-verified from the chain alone.
+EVENT_TRACKER_PIPELINE_SWEEP = "tracker_pipeline.sweep"
 
 
 # ---------------------------------------------------------------------------
@@ -8882,6 +8889,53 @@ def record_capability_authorization(
     )
 
 
+def record_tracker_pipeline_sweep(
+    *,
+    chain: AuditChainStore,
+    config_digest: str,
+    trackers_contacted: Sequence[str],
+    handoffs_claimed: Sequence[dict[str, Any]],
+    handoffs_released: Sequence[dict[str, Any]],
+    stage_outcomes: Mapping[str, str],
+    actor: str = "pipeline_runner",
+    resource_id: str | None = None,
+) -> AuditEvent:
+    """Append a ``tracker_pipeline.sweep`` event into *chain* (#4916).
+
+    Records the outcome of a single sweep of the tracker pipeline into the
+    HMAC-chained audit log so an operator can prove, from the chain alone,
+    that a scheduled sweep ran, which trackers were contacted, and which
+    handoffs were processed.
+
+    Args:
+        chain: The audit chain store accepting the entry.
+        config_digest: SHA-256 digest of the resolved pipeline config.
+        trackers_contacted: Ordered list of tracker adapter names contacted.
+        handoffs_claimed: List of handoff claim summaries emitted during the sweep.
+        handoffs_released: List of handoff release summaries emitted during the sweep.
+        stage_outcomes: Mapping of stage/role to outcome status string.
+        actor: Actor recording the sweep; defaults to ``"pipeline_runner"``.
+        resource_id: Optional resource ID; defaults to ``config_digest``.
+
+    Returns:
+        The recorded :class:`AuditEvent` with ``prev_chain_digest`` embedded in
+        its details payload.
+    """
+    return chain.log_with_prev_digest(
+        event_type=EVENT_TRACKER_PIPELINE_SWEEP,
+        actor=actor,
+        resource_type="tracker_pipeline",
+        resource_id=resource_id or config_digest,
+        details={
+            "config_digest": config_digest,
+            "trackers_contacted": list(trackers_contacted),
+            "handoffs_claimed": list(handoffs_claimed),
+            "handoffs_released": list(handoffs_released),
+            "stage_outcomes": dict(stage_outcomes),
+        },
+    )
+
+
 __all__ = [
     "AGENT_FRESH_RESTART_ON_RETRY",
     "EVENT_A2A_MESSAGE_RECEIPT",
@@ -9011,6 +9065,7 @@ __all__ = [
     "EVENT_TEMPLATE_COMPRESSION_RESTORE",
     "EVENT_THREAD_APPROVAL",
     "EVENT_TOURNAMENT_SELECTION",
+    "EVENT_TRACKER_PIPELINE_SWEEP",
     "EVENT_TRAJECTORY_RECEIPT",
     "EVENT_UPDATE_ADVISORY",
     "EVENT_VERIFIER_TIER",

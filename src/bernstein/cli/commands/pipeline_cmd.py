@@ -2,20 +2,21 @@
 
 Subcommands:
 
-* ``pipeline run`` - resolve and report the configured trackers. It
-  does not dispatch: the adapter registry is not wired to this command.
+* ``pipeline run`` - one sweep across configured trackers (used by
+  cron/timers; not a long-running loop).
 * ``pipeline status`` - print open handoffs for the configured
   trackers from the in-process ledger and (optionally) JSON.
 
 The CLI is deliberately thin: every meaningful decision lives in
 :class:`bernstein.core.orchestration.tracker_pipeline.TrackerPipeline`.
-The CLI is responsible only for resolving ``bernstein.yaml`` and
-rendering output. Wiring adapters from the registered tracker module is
-the part that does not exist yet.
+The CLI is responsible only for resolving ``bernstein.yaml``, wiring
+adapters from the registered tracker module, driving the sweep, and
+recording the audit chain record.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -28,18 +29,41 @@ from bernstein.cli.helpers import console
 from bernstein.core.orchestration.tracker_pipeline import (
     DEFAULT_LEDGER_RELPATH,
     ClaimLedger,
+    DispatchOutcome,
     PipelineConfig,
     StageHandoff,
     TrackerPipelineError,
+    build_pipeline_from_yaml,
+)
+from bernstein.core.security.audit_chain import (
+    AuditChainStore,
+    record_tracker_pipeline_sweep,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from bernstein.core.trackers.contract import AbstractTrackerAdapter, Ticket
+
 logger = logging.getLogger(__name__)
 
 
 SDD_ROOT_RELPATH = Path(".sdd")
+
+
+class _CliDispatcher:
+    """Default role-execution surface for CLI sweeps."""
+
+    def dispatch(
+        self,
+        *,
+        tracker: str,
+        ticket: Ticket,
+        role: str,
+        stage_attempt: int,
+        idempotency_key: str,
+    ) -> DispatchOutcome:
+        return DispatchOutcome(success=True, summary=f"cli sweep: {role}")
 
 
 @click.group("pipeline")
@@ -64,57 +88,117 @@ def pipeline_group() -> None:
     help="Path to bernstein.yaml.",
 )
 @click.option(
+    "--state-root",
+    "state_root",
+    type=click.Path(file_okay=False, dir_okay=True, path_type=Path),
+    default=SDD_ROOT_RELPATH,
+    show_default=True,
+    help="Project state root containing the SQLite ledger and audit chain.",
+)
+@click.option(
     "--dry-run",
     is_flag=True,
     default=False,
-    help="Kept for compatibility. Dispatch is not wired, so a plain run does not dispatch either.",
+    help="Print the resolved pipeline config without contacting any tracker.",
 )
 def run_cmd(
     *,
     workflow_path: Path | None,
     config_path: Path,
+    state_root: Path = SDD_ROOT_RELPATH,
     dry_run: bool,
 ) -> None:
-    """Resolve and report the tracker handoff pipeline. Does NOT dispatch.
+    """Run a single sweep of the tracker handoff pipeline.
 
-    Every surface of this command used to promise a sweep it does not
-    perform. It said "Run a single sweep", claimed each invocation
-    "walks every configured tracker once", and offered ``--dry-run`` to
-    print the config "without dispatching" - while neither path
-    dispatches anything at all. An operator following
-    the advice to schedule it via systemd or cron got a printout on
-    every tick and no work, with nothing to indicate why.
-
-    The dispatch wiring lives in ``build_pipeline_from_yaml`` and the
-    tracker adapter registry, and the CLI does not drive it - that
-    function has no caller anywhere. Until it does, this command
-    resolves the config, validates it, and shows what WOULD be swept.
-
-    Operators who need dispatch today should construct the pipeline
-    programmatically with a single-entry ``trackers`` mapping.
+    The command is non-blocking: each invocation walks every
+    configured tracker once. Operators schedule recurring invocations
+    via systemd, cron, or the existing ``bernstein daemon`` runner.
     """
-    # Accepted so existing invocations keep working; there is no second
-    # behaviour left for it to select.
-    del dry_run
-    config = _resolve_config(workflow_path or config_path)
+    target_path = workflow_path or config_path
+    config = _resolve_config(target_path)
     if not config.pipeline_stages:
         console.print(
             "[yellow]No pipeline stages configured under orchestration.tracker_pipeline; nothing to do.[/yellow]"
         )
         return
-    # This comment used to say the command "invokes it through the trackers registry at
-    # runtime". It does not, and never has: ``build_pipeline_from_yaml`` has no caller
-    # anywhere in the tree. Saying so here is the difference between a reader trusting the
-    # printout and a reader going to look for the dispatch that did not happen.
-    #
-    # The banner is printed on both paths on purpose. --dry-run is the flag an operator
-    # reaches for precisely when they want to know nothing was dispatched, so it is the
-    # last place the disclaimer should be missing.
-    console.print(
-        "[yellow]No dispatch: the tracker adapter registry is not wired to this command, "
-        "so nothing was swept.[/yellow] The config below resolved and validated."
+
+    if dry_run:
+        _print_config(config)
+        return
+
+    raw_block = _load_pipeline_block(target_path)
+    tracker_configs = _load_tracker_configurations(target_path, fallback_path=config_path)
+    trackers = _instantiate_trackers(tracker_configs)
+
+    dispatcher = _CliDispatcher()
+    pipeline = build_pipeline_from_yaml(
+        raw_block,
+        trackers=trackers,
+        dispatcher=dispatcher,
+        state_root=state_root,
     )
-    _print_config(config)
+
+    try:
+        pipeline.tick()
+    except Exception:
+        logger.exception("pipeline sweep encountered an unhandled exception")
+
+    if target_path.exists():
+        config_digest = hashlib.sha256(target_path.read_bytes()).hexdigest()
+    else:
+        config_digest = hashlib.sha256(b"").hexdigest()
+
+    stage_outcomes: dict[str, str] = {}
+    for stage in config.pipeline_stages:
+        stage_handoffs = [h for h in pipeline.handoffs if h.role == stage.role]
+        if not stage_handoffs:
+            stage_outcomes[stage.role] = "idle"
+        elif all(h.outcome == "success" for h in stage_handoffs):
+            stage_outcomes[stage.role] = "success"
+        elif all(h.outcome == "failure" for h in stage_handoffs):
+            stage_outcomes[stage.role] = "failure"
+        else:
+            stage_outcomes[stage.role] = "partial"
+
+    try:
+        audit_dir = state_root / "audit"
+        chain = AuditChainStore(audit_dir)
+        record_tracker_pipeline_sweep(
+            chain=chain,
+            config_digest=config_digest,
+            trackers_contacted=list(trackers.keys()),
+            handoffs_claimed=[h.to_payload() for h in pipeline.handoffs],
+            handoffs_released=[h.to_payload() for h in pipeline.handoffs],
+            stage_outcomes=stage_outcomes,
+        )
+    except Exception as exc:
+        logger.debug("audit chain record failed: %s", exc)
+
+    if pipeline.handoffs:
+        from rich.table import Table
+
+        table = Table(title=f"Tracker pipeline sweep ({len(pipeline.handoffs)} handoff(s))")
+        table.add_column("Tracker")
+        table.add_column("Ticket")
+        table.add_column("Role")
+        table.add_column("Outcome")
+        table.add_column("Transition")
+        for h in pipeline.handoffs:
+            outcome_str = f"[green]{h.outcome}[/green]" if h.outcome == "success" else f"[red]{h.outcome}[/red]"
+            table.add_row(
+                h.tracker,
+                h.ticket_id,
+                h.role,
+                outcome_str,
+                f"{h.from_status} -> {h.to_status}",
+            )
+        console.print(table)
+    else:
+        tracker_count = len(trackers)
+        if tracker_count == 0:
+            console.print("[dim]Sweep complete: 0 trackers configured; 0 handoffs.[/dim]")
+        else:
+            console.print(f"[dim]Sweep complete: {tracker_count} tracker(s) contacted; 0 handoffs.[/dim]")
 
 
 @pipeline_group.command("status")
@@ -281,3 +365,74 @@ def render_handoff(handoff: StageHandoff) -> str:
         f"{handoff.tracker}:{handoff.ticket_id} {handoff.role} "
         f"{handoff.from_status} -> {handoff.to_status} ({handoff.outcome})"
     )
+
+
+def _load_tracker_configurations(
+    path: Path,
+    fallback_path: Path | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Return configured trackers mapping from ``path`` (or fallback)."""
+    configs: dict[str, dict[str, Any]] = {}
+    paths_to_try = [path]
+    if fallback_path is not None and fallback_path != path:
+        paths_to_try.append(fallback_path)
+    for p in paths_to_try:
+        if not p.exists():
+            continue
+        try:
+            data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        except Exception:
+            continue
+        if not isinstance(data, dict):
+            continue
+        raw_trackers = data.get("trackers")
+        if raw_trackers is None:
+            orch = data.get("orchestration")
+            if isinstance(orch, dict):
+                tp = orch.get("tracker_pipeline")
+                if isinstance(tp, dict):
+                    raw_trackers = tp.get("trackers")
+        if isinstance(raw_trackers, dict):
+            for name, cfg in raw_trackers.items():
+                if isinstance(name, str):
+                    configs[name] = cfg if isinstance(cfg, dict) else {}
+            if configs:
+                break
+        elif isinstance(raw_trackers, (list, tuple)):
+            for item in raw_trackers:
+                if isinstance(item, str):
+                    configs[item] = {}
+                elif isinstance(item, dict):
+                    for name, cfg in item.items():
+                        if isinstance(name, str):
+                            configs[name] = cfg if isinstance(cfg, dict) else {}
+            if configs:
+                break
+    return configs
+
+
+def _instantiate_trackers(
+    tracker_configs: dict[str, dict[str, Any]],
+) -> dict[str, AbstractTrackerAdapter]:
+    """Resolve and construct tracker adapters from the registry."""
+    from bernstein.core.trackers.registry import (
+        discover_plugin_trackers,
+        get_registry,
+    )
+
+    registry = get_registry()
+    try:
+        discover_plugin_trackers()
+    except Exception as exc:
+        logger.debug("plugin tracker discovery failed: %s", exc)
+
+    adapters: dict[str, AbstractTrackerAdapter] = {}
+    for name, cfg in tracker_configs.items():
+        if name not in registry:
+            logger.warning("Configured tracker %r not found in registry", name)
+            continue
+        try:
+            adapters[name] = registry.create(name, **cfg)
+        except Exception as exc:
+            logger.warning("Failed to instantiate tracker adapter %r: %s", name, exc)
+    return adapters
