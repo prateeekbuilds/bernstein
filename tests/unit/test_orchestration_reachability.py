@@ -52,8 +52,10 @@ SEARCHED = ("src", "tests", "scripts")
 KNOWN_UNREACHABLE: frozenset[str] = frozenset(
     {
         "holds.py:has_active_holds",
-        "tracker_pipeline.py:build_pipeline_from_yaml",
-        "tracker_pipeline.py:default_ledger_path",
+        # `build_pipeline_from_yaml` and `default_ledger_path` left this list when
+        # `pipeline run` started driving the tracker sweep: both are now called from
+        # `cli/commands/pipeline_cmd.py`, so the guard rejected them as stale
+        # exemptions. `stage_attempt_for` still has no caller and stays.
         "tracker_pipeline.py:stage_attempt_for",
         "worker.py:check_token_escalation",
         "worker.py:register_permission_hook",
