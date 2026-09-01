@@ -506,16 +506,24 @@ def _instantiate_trackers(
     )
 
     registry = get_registry()
+    discovery_error: Exception | None = None
     try:
         discover_plugin_trackers()
     except Exception as exc:
         logger.debug("plugin tracker discovery failed: %s", exc)
+        discovery_error = exc
 
     adapters: dict[str, AbstractTrackerAdapter] = {}
     init_errors: list[str] = []
     for name, cfg in tracker_configs.items():
         if name not in registry:
-            err = f"Configured tracker {name!r} not found in registry"
+            if discovery_error is not None:
+                err = (
+                    f"Configured tracker {name!r} not found in registry "
+                    f"(plugin discovery failed earlier: {discovery_error})"
+                )
+            else:
+                err = f"Configured tracker {name!r} not found in registry"
             logger.warning(err)
             init_errors.append(err)
             continue
