@@ -27,6 +27,8 @@ source_modules =
 forbidden_modules =
     bernstein.cli
     bernstein.tui
+ignore_imports =
+    bernstein.core.checks.adapters -> bernstein.cli.commands.status_cmd
 
 
 # ---------------------------------------------------------------------------
