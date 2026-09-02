@@ -52,6 +52,9 @@ class _DummyCheck:
             raise self._outcome
         return self._outcome
 
+    def __call__(self, workdir: Path | None = None) -> Finding:
+        return self.run(workdir)
+
 
 # ---------------------------------------------------------------------------
 # 1. Measured finding without evidence is rejected

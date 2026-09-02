@@ -64,6 +64,9 @@ class DoctorComplianceAdapter:
             remediation=str(entry.get("fix", "")),
         )
 
+    def __call__(self, workdir: Path | None = None) -> Finding:
+        return self.run(workdir)
+
 
 class ComplianceEncryptionAtRestAdapter:
     """Adapter wrapping ``check_encryption_at_rest`` from the compliance library."""
@@ -102,3 +105,6 @@ class ComplianceEncryptionAtRestAdapter:
             message=str(result.evidence),
             remediation=str(result.remediation),
         )
+
+    def __call__(self, workdir: Path | None = None) -> Finding:
+        return self.run(workdir)

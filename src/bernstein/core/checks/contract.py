@@ -24,11 +24,13 @@ if TYPE_CHECKING:
 
 
 class Verdict(StrEnum):
-    """The three-state verdict for an audit check finding."""
+    """The verdict vocabulary for an audit check finding."""
 
     PASS = "pass"
     FAIL = "fail"
     NOT_MEASURABLE = "not_measurable"
+    MEASURED = "measured"
+    DECLARED = "declared"
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +87,10 @@ class Finding:
             ``not_measurable``.
         reason: Optional human-readable reason or exception class name.
         message: Optional diagnostic summary of the result.
+        summary: Alias for :attr:`message`.
         remediation: Optional remediation guidance if the check failed.
+        area: Check area / category (e.g. ``doctor``, ``compliance``).
+        passed: Boolean pass/fail indicator for measured findings.
     """
 
     check_id: str
@@ -94,7 +99,10 @@ class Finding:
     what_would_make_it_measurable: str | None = None
     reason: str | None = None
     message: str = ""
+    summary: str = ""
     remediation: str = ""
+    area: str = ""
+    passed: bool | None = None
 
     def __post_init__(self) -> None:
         if not self.check_id or not self.check_id.strip():
@@ -113,13 +121,29 @@ class Finding:
             if not isinstance(item, Evidence):
                 raise TypeError(f"evidence item must be an Evidence instance, got {type(item).__name__}")
 
+        # Derive area from namespaced ID if not explicitly given
+        if not self.area and ":" in self.check_id:
+            object.__setattr__(self, "area", self.check_id.split(":", 1)[0])
+
+        # Synchronize summary and message
+        if self.summary and not self.message:
+            object.__setattr__(self, "message", self.summary)
+        elif self.message and not self.summary:
+            object.__setattr__(self, "summary", self.message)
+
+        # Synchronize passed boolean with verdict
+        if self.verdict == Verdict.PASS and self.passed is None:
+            object.__setattr__(self, "passed", True)
+        elif self.verdict == Verdict.FAIL and self.passed is None:
+            object.__setattr__(self, "passed", False)
+
         # Keep reason and what_would_make_it_measurable in sync
         if self.what_would_make_it_measurable and not self.reason:
             object.__setattr__(self, "reason", self.what_would_make_it_measurable)
         elif self.reason and not self.what_would_make_it_measurable:
             object.__setattr__(self, "what_would_make_it_measurable", self.reason)
 
-        if self.verdict in (Verdict.PASS, Verdict.FAIL):
+        if self.verdict in (Verdict.PASS, Verdict.FAIL, Verdict.MEASURED):
             if not self.evidence:
                 raise ValueError(
                     f"Measured finding with verdict '{self.verdict.value}' requires at least one evidence item"
@@ -161,4 +185,8 @@ class Check(Protocol):
 
     def run(self, workdir: Path | None = None) -> Finding:
         """Run the check against the given workspace and return a Finding."""
+        ...
+
+    def __call__(self, workdir: Path | None = None) -> Finding:
+        """Callable invocation returning a Finding."""
         ...

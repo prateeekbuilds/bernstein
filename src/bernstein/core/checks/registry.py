@@ -33,7 +33,7 @@ class CheckRegistry:
             TypeError: If ``check`` does not conform to the :class:`Check` protocol.
             ValueError: If ``check.check_id`` is invalid, not namespaced, or already registered.
         """
-        if not isinstance(check, Check):
+        if not hasattr(check, "check_id") or not (hasattr(check, "run") or callable(check)):
             raise TypeError(f"Expected Check instance, got {type(check).__name__}")
 
         check_id = check.check_id
