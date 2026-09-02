@@ -1,7 +1,8 @@
 """Adapters wrapping existing diagnostic and compliance checks into the Check contract (#5072).
 
 Adapts:
-1. ``_doctor_check_compliance`` from :mod:`bernstein.cli.commands.status_cmd`.
+1. ``compliance_prerequisite_summary`` from :mod:`bernstein.core.compliance`, the
+   same producer the ``bernstein doctor`` compliance row renders.
 2. ``check_encryption_at_rest`` from :mod:`bernstein.core.security.compliance_library`.
 """
 
@@ -14,7 +15,7 @@ from bernstein.core.checks.contract import Evidence, Finding, Verdict
 
 
 class DoctorComplianceAdapter:
-    """Adapter wrapping ``_doctor_check_compliance`` into the Check contract."""
+    """Adapter wrapping the doctor compliance prerequisite check into the Check contract."""
 
     @property
     def check_id(self) -> str:
@@ -29,13 +30,12 @@ class DoctorComplianceAdapter:
         return "Verify compliance mode configuration and prerequisite health."
 
     def run(self, workdir: Path | None = None) -> Finding:
-        from bernstein.cli.commands.status_cmd import _doctor_check_compliance
+        from bernstein.core.compliance import compliance_prerequisite_summary
 
         path = workdir or Path(".")
-        collected: list[dict[str, Any]] = []
-        _doctor_check_compliance(collected, path)
+        summary = compliance_prerequisite_summary(path)
 
-        if not collected:
+        if summary is None:
             return Finding(
                 check_id=self.check_id,
                 verdict=Verdict.NOT_MEASURABLE,
@@ -44,14 +44,8 @@ class DoctorComplianceAdapter:
                 message="Compliance prerequisites not configured for this workspace.",
             )
 
-        entry = collected[0]
-        ok = bool(entry.get("ok", False))
-        payload = {
-            "name": str(entry.get("name", "")),
-            "ok": ok,
-            "detail": str(entry.get("detail", "")),
-            "fix": str(entry.get("fix", "")),
-        }
+        name, ok, detail, fix = summary
+        payload: dict[str, Any] = {"name": name, "ok": ok, "detail": detail, "fix": fix}
         evidence = Evidence.from_payload(
             locator=f"doctor:compliance:{path}",
             payload=payload,
@@ -60,8 +54,8 @@ class DoctorComplianceAdapter:
             check_id=self.check_id,
             verdict=Verdict.PASS if ok else Verdict.FAIL,
             evidence=(evidence,),
-            message=str(entry.get("detail", "")),
-            remediation=str(entry.get("fix", "")),
+            message=detail,
+            remediation=fix,
         )
 
     def __call__(self, workdir: Path | None = None) -> Finding:

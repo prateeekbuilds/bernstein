@@ -225,8 +225,11 @@ def test_ids_are_unique_and_namespaced() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_two_wrapped_producers_yield_valid_findings(tmp_path: Path) -> None:
+def test_two_wrapped_producers_yield_valid_findings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The two producer adapters yield valid Findings with canonical hashed evidence."""
+    # An ambient preset would configure compliance for every workspace.
+    monkeypatch.delenv("BERNSTEIN_COMPLIANCE", raising=False)
+
     # 1. Doctor adapter: DoctorComplianceAdapter
     doctor_adapter = DoctorComplianceAdapter()
     assert doctor_adapter.check_id == "doctor:compliance"
@@ -270,3 +273,56 @@ def test_two_wrapped_producers_yield_valid_findings(tmp_path: Path) -> None:
     assert comp_finding_pass.verdict == Verdict.PASS
     assert len(comp_finding_pass.evidence) == 1
     assert comp_finding_pass.evidence[0].sha256.startswith("sha256:")
+
+
+# ---------------------------------------------------------------------------
+# 6. The doctor adapter and the doctor row share one producer
+# ---------------------------------------------------------------------------
+
+
+def test_doctor_adapter_agrees_with_doctor_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The adapter and the ``bernstein doctor`` row report the same compliance result.
+
+    Both read the same core producer, so a change to one cannot silently drift
+    from the other. ``standard`` leaves prerequisites unmet, which exercises the
+    failing branch where the detail and fix strings actually carry text.
+    """
+    from bernstein.cli.commands.status_cmd import _doctor_check_compliance
+
+    monkeypatch.delenv("BERNSTEIN_COMPLIANCE", raising=False)
+    sdd_config = tmp_path / ".sdd" / "config"
+    sdd_config.mkdir(parents=True, exist_ok=True)
+    (sdd_config / "compliance.json").write_text('{"preset": "standard"}', encoding="utf-8")
+
+    rows: list[dict[str, object]] = []
+    _doctor_check_compliance(rows, tmp_path)
+    assert len(rows) == 1
+    row = rows[0]
+
+    finding = DoctorComplianceAdapter().run(tmp_path)
+
+    assert finding.verdict == (Verdict.PASS if row["ok"] else Verdict.FAIL)
+    assert finding.message == row["detail"]
+    assert finding.remediation == row["fix"]
+
+    # The evidence digest is taken over the same row the doctor renders.
+    expected = Evidence.from_payload(
+        locator=f"doctor:compliance:{tmp_path}",
+        payload={"name": row["name"], "ok": row["ok"], "detail": row["detail"], "fix": row["fix"]},
+    )
+    assert finding.evidence == (expected,)
+
+
+def test_doctor_adapter_reports_no_config_as_not_measurable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unconfigured workspace yields no doctor row and a not_measurable finding."""
+    from bernstein.cli.commands.status_cmd import _doctor_check_compliance
+
+    monkeypatch.delenv("BERNSTEIN_COMPLIANCE", raising=False)
+
+    rows: list[dict[str, object]] = []
+    _doctor_check_compliance(rows, tmp_path)
+    assert rows == []
+
+    finding = DoctorComplianceAdapter().run(tmp_path)
+    assert finding.verdict == Verdict.NOT_MEASURABLE
+    assert finding.evidence == ()
