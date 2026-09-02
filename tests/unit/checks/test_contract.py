@@ -280,28 +280,42 @@ def test_two_wrapped_producers_yield_valid_findings(tmp_path: Path, monkeypatch:
 # ---------------------------------------------------------------------------
 
 
-def test_doctor_adapter_agrees_with_doctor_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("config", "expected_ok"),
+    [
+        # Every named preset satisfies its own prerequisites.
+        ('{"preset": "standard"}', True),
+        # Evidence bundle export without WAL or audit logging does not.
+        ('{"evidence_bundle": true}', False),
+    ],
+)
+def test_doctor_adapter_agrees_with_doctor_row(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, expected_ok: bool
+) -> None:
     """The adapter and the ``bernstein doctor`` row report the same compliance result.
 
     Both read the same core producer, so a change to one cannot silently drift
-    from the other. ``standard`` leaves prerequisites unmet, which exercises the
-    failing branch where the detail and fix strings actually carry text.
+    from the other. The unmet-prerequisite case is covered as well as the met
+    one, so the assertion on ``remediation`` compares real text rather than two
+    empty strings.
     """
     from bernstein.cli.commands.status_cmd import _doctor_check_compliance
 
     monkeypatch.delenv("BERNSTEIN_COMPLIANCE", raising=False)
     sdd_config = tmp_path / ".sdd" / "config"
     sdd_config.mkdir(parents=True, exist_ok=True)
-    (sdd_config / "compliance.json").write_text('{"preset": "standard"}', encoding="utf-8")
+    (sdd_config / "compliance.json").write_text(config, encoding="utf-8")
 
     rows: list[dict[str, object]] = []
     _doctor_check_compliance(rows, tmp_path)
     assert len(rows) == 1
     row = rows[0]
+    assert row["ok"] is expected_ok
+    assert bool(row["fix"]) is not expected_ok
 
     finding = DoctorComplianceAdapter().run(tmp_path)
 
-    assert finding.verdict == (Verdict.PASS if row["ok"] else Verdict.FAIL)
+    assert finding.verdict == (Verdict.PASS if expected_ok else Verdict.FAIL)
     assert finding.message == row["detail"]
     assert finding.remediation == row["fix"]
 
