@@ -61,8 +61,8 @@ def govern_audit_cmd(
 ) -> None:
     """Run registered governance audit checks across the workspace.
 
-    Note: For verifier-key staleness checks previously under this name in v2,
-    use ``bernstein govern audit-keys``.
+    Note: the verifier-key staleness check this command used to run now
+    lives in ``bernstein govern audit-keys``.
 
     Exit codes:
       0: All executed checks passed.

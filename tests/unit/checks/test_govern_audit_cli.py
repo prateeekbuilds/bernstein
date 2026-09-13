@@ -58,6 +58,20 @@ def test_govern_audit_only_area_filter() -> None:
     assert "compliance:soc2:encryption_at_rest" not in ids
 
 
+def test_govern_audit_only_compliance_area_filter() -> None:
+    """bernstein govern audit --only compliance restricts checks to compliance area."""
+    runner = CliRunner()
+    result = runner.invoke(cli, ["govern", "audit", "--list", "--only", "compliance", "--json"])
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    data = json.loads(result.output)
+    for item in data:
+        assert item["area"] == "compliance"
+    ids = {item["check_id"] for item in data}
+    assert "compliance:soc2:encryption_at_rest" in ids
+    assert "doctor:compliance" not in ids
+
+
 def test_govern_audit_skip_id_filter_case_insensitive() -> None:
     """bernstein govern audit --skip <id> excludes check IDs case-insensitively."""
     runner = CliRunner()

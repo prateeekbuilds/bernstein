@@ -142,7 +142,7 @@ def populate_default_checks(registry: CheckRegistry | None = None) -> None:
         DoctorComplianceAdapter,
     )
 
-    reg = registry or _DEFAULT_REGISTRY
+    reg = _DEFAULT_REGISTRY if registry is None else registry
     for adapter_cls in (DoctorComplianceAdapter, ComplianceEncryptionAtRestAdapter):
         adapter = adapter_cls()
         if reg.get_check(adapter.check_id) is None:
