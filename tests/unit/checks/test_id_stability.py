@@ -70,8 +70,12 @@ def test_populated_registry_contains_no_tombstoned_ids() -> None:
     populate_default_checks(registry)
 
     registered_ids = {c.check_id for c in registry.iter_checks()}
-    assert registered_ids & TOMBSTONED_IDS == set(), f"Tombstoned IDs found in active registry: {registered_ids & TOMBSTONED_IDS}"
-    assert ACTIVE_PINNED_IDS & TOMBSTONED_IDS == set(), f"Pinned IDs overlap with tombstones: {ACTIVE_PINNED_IDS & TOMBSTONED_IDS}"
+    assert registered_ids & TOMBSTONED_IDS == set(), (
+        f"Tombstoned IDs found in active registry: {registered_ids & TOMBSTONED_IDS}"
+    )
+    assert set() == ACTIVE_PINNED_IDS & TOMBSTONED_IDS, (
+        f"Pinned IDs overlap with tombstones: {ACTIVE_PINNED_IDS & TOMBSTONED_IDS}"
+    )
 
 
 def test_registered_check_ids_are_unique() -> None:
@@ -99,4 +103,3 @@ def test_registering_check_class_instead_of_instance_raises_type_error() -> None
     registry = CheckRegistry()
     with pytest.raises(TypeError, match="Expected Check instance, got class '_DummyCheck'"):
         registry.register(_DummyCheck)  # type: ignore[arg-type]
-
