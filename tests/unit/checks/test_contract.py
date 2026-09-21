@@ -176,6 +176,27 @@ def test_raising_check_is_reported_not_dropped(tmp_path: Path) -> None:
     assert healthy_result.message == "Healthy check passed"
 
 
+def test_check_returning_non_finding_reported_as_not_measurable(tmp_path: Path) -> None:
+    """A check whose run() returns a dict or non-Finding object is reported as not_measurable."""
+    registry = CheckRegistry()
+
+    class _DictReturningCheck:
+        check_id = "test:bad_return"
+
+        def run(self, workdir: Path | None = None) -> object:
+            return {"status": "ok", "passed": True}
+
+    registry.register(_DictReturningCheck())  # type: ignore[arg-type]
+
+    findings = registry.run_all(tmp_path)
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.check_id == "test:bad_return"
+    assert f.verdict == Verdict.NOT_MEASURABLE
+    assert f.reason == "TypeError"
+    assert "TypeError" in (f.what_would_make_it_measurable or "")
+
+
 # ---------------------------------------------------------------------------
 # 4. Check IDs are unique and namespaced
 # ---------------------------------------------------------------------------

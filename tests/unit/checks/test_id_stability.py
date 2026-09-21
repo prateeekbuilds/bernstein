@@ -38,14 +38,17 @@ class _DummyCheck:
         return Finding(check_id=self.check_id, verdict=Verdict.PASS, evidence=(ev,))
 
 
-def test_active_pinned_ids_are_present_in_default_registry() -> None:
-    """All active pinned IDs must be present when default checks are populated."""
+def test_active_pinned_ids_match_default_registry() -> None:
+    """All active pinned IDs must exactly match the populated default registry."""
     registry = CheckRegistry()
     populate_default_checks(registry)
 
     registered_ids = {c.check_id for c in registry.iter_checks()}
-    for pinned_id in ACTIVE_PINNED_IDS:
-        assert pinned_id in registered_ids, f"Pinned check ID '{pinned_id}' missing from populated registry"
+    assert registered_ids == ACTIVE_PINNED_IDS, (
+        f"Mismatch between populated registry and ACTIVE_PINNED_IDS. "
+        f"Extra in registry: {registered_ids - ACTIVE_PINNED_IDS}, "
+        f"Missing from registry: {ACTIVE_PINNED_IDS - registered_ids}"
+    )
 
 
 def test_check_ids_are_properly_namespaced() -> None:

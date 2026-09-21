@@ -123,3 +123,45 @@ def test_govern_audit_unconfigured_workspace_reports_failure(tmp_path: Path) -> 
     # Missing configuration triggers NOT_MEASURABLE / FAIL
     assert result.exit_code == 1
     assert "doctor:compliance" in result.output
+
+
+def test_govern_audit_empty_area_selection_fails_nonzero(tmp_path: Path) -> None:
+    """bernstein govern audit with non-matching area selector outputs empty findings and exits 1."""
+    runner = CliRunner()
+
+    # JSON mode
+    result_json = runner.invoke(
+        cli,
+        ["govern", "audit", "--workdir", str(tmp_path), "--only", "typo", "--json"],
+    )
+    assert result_json.exit_code == 1
+    assert json.loads(result_json.output) == []
+
+    # Console mode
+    result_console = runner.invoke(
+        cli,
+        ["govern", "audit", "--workdir", str(tmp_path), "--only", "typo"],
+    )
+    assert result_console.exit_code == 1
+    assert "No checks matched" in result_console.output
+
+
+def test_govern_audit_skip_all_checks_fails_nonzero(tmp_path: Path) -> None:
+    """bernstein govern audit with all checks skipped outputs empty findings and exits 1."""
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "govern",
+            "audit",
+            "--workdir",
+            str(tmp_path),
+            "--skip",
+            "doctor:compliance",
+            "--skip",
+            "compliance:soc2:encryption_at_rest",
+            "--json",
+        ],
+    )
+    assert result.exit_code == 1
+    assert json.loads(result.output) == []

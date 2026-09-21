@@ -110,6 +110,10 @@ class CheckRegistry:
         for check in self.iter_checks(only_areas=only_areas, skip_ids=skip_ids):
             try:
                 finding = check.run(workdir)
+                if not isinstance(finding, Finding):
+                    raise TypeError(
+                        f"Check '{check.check_id}' run() returned {type(finding).__name__}, expected Finding"
+                    )
             except Exception as exc:
                 logger.warning(
                     "Check '%s' raised %s: %s; reporting as not_measurable",

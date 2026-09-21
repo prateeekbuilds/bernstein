@@ -65,8 +65,8 @@ def govern_audit_cmd(
     lives in ``bernstein govern audit-keys``.
 
     Exit codes:
-      0: All executed checks passed.
-      1: One or more checks failed or were not measurable.
+      0: All executed checks passed (at least one check executed).
+      1: One or more checks failed, were not measurable, or no checks were selected.
     """
     registry = CheckRegistry()
     populate_default_checks(registry)
@@ -102,6 +102,13 @@ def govern_audit_cmd(
 
     root = Path(workdir).resolve()
     findings = registry.run_all(workdir=root, only_areas=only_areas, skip_ids=skip_ids)
+
+    if not findings:
+        if as_json:
+            click.echo(json.dumps([], indent=2))
+        else:
+            console.print("[bold red]No checks matched the specified selector(s).[/bold red]")
+        raise SystemExit(1)
 
     if as_json:
         payload = [
