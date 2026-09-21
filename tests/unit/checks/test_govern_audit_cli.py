@@ -17,6 +17,8 @@ from pathlib import Path
 from click.testing import CliRunner
 
 from bernstein.cli.main import cli
+from bernstein.core.checks.contract import Evidence, Finding, Verdict
+from bernstein.core.checks.registry import _DEFAULT_REGISTRY
 
 
 def test_govern_audit_is_reachable_from_top_level_cli() -> None:
@@ -167,11 +169,8 @@ def test_govern_audit_skip_all_checks_fails_nonzero(tmp_path: Path) -> None:
     assert json.loads(result.output) == []
 
 
-def test_govern_audit_executes_module_level_registered_checks(tmp_path: Path) -> None:
+def test_govern_audit_executes_module_level_registered_checks() -> None:
     """Checks registered into the shared default registry (e.g. from #5837 sentinel) are executed by CLI."""
-    from bernstein.core.checks.contract import Evidence, Finding, Verdict
-    from bernstein.core.checks.registry import _DEFAULT_REGISTRY
-
     class SentinelCheck:
         check_id = "sentinel:audit"
         area = "sentinel"

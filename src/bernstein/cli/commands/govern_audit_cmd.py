@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import click
 from rich.table import Table
@@ -17,9 +18,11 @@ from bernstein.cli.helpers import console
 from bernstein.core.checks.contract import Verdict
 from bernstein.core.checks.registry import (
     _DEFAULT_REGISTRY,
-    CheckRegistry,
     populate_default_checks,
 )
+
+if TYPE_CHECKING:
+    from bernstein.core.checks.registry import CheckRegistry
 
 
 @click.command("audit")
