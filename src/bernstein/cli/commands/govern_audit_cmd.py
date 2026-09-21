@@ -15,7 +15,11 @@ from rich.table import Table
 
 from bernstein.cli.helpers import console
 from bernstein.core.checks.contract import Verdict
-from bernstein.core.checks.registry import CheckRegistry, populate_default_checks
+from bernstein.core.checks.registry import (
+    _DEFAULT_REGISTRY,
+    CheckRegistry,
+    populate_default_checks,
+)
 
 
 @click.command("audit")
@@ -58,6 +62,7 @@ def govern_audit_cmd(
     skip_ids: tuple[str, ...],
     workdir: str,
     as_json: bool,
+    registry: CheckRegistry | None = None,
 ) -> None:
     """Run registered governance audit checks across the workspace.
 
@@ -68,11 +73,11 @@ def govern_audit_cmd(
       0: All executed checks passed (at least one check executed).
       1: One or more checks failed, were not measurable, or no checks were selected.
     """
-    registry = CheckRegistry()
-    populate_default_checks(registry)
+    reg = _DEFAULT_REGISTRY if registry is None else registry
+    populate_default_checks(reg)
 
     if list_checks:
-        checks = registry.list_checks(only_areas=only_areas, skip_ids=skip_ids)
+        checks = reg.list_checks(only_areas=only_areas, skip_ids=skip_ids)
         if as_json:
             payload = [
                 {
@@ -101,7 +106,7 @@ def govern_audit_cmd(
         raise SystemExit(0)
 
     root = Path(workdir).resolve()
-    findings = registry.run_all(workdir=root, only_areas=only_areas, skip_ids=skip_ids)
+    findings = reg.run_all(workdir=root, only_areas=only_areas, skip_ids=skip_ids)
 
     if not findings:
         if as_json:

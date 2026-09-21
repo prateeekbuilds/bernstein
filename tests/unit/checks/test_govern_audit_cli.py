@@ -165,3 +165,36 @@ def test_govern_audit_skip_all_checks_fails_nonzero(tmp_path: Path) -> None:
     )
     assert result.exit_code == 1
     assert json.loads(result.output) == []
+
+
+def test_govern_audit_executes_module_level_registered_checks(tmp_path: Path) -> None:
+    """Checks registered into the shared default registry (e.g. from #5837 sentinel) are executed by CLI."""
+    from bernstein.core.checks.contract import Evidence, Finding, Verdict
+    from bernstein.core.checks.registry import _DEFAULT_REGISTRY
+
+    class SentinelCheck:
+        check_id = "sentinel:audit"
+        area = "sentinel"
+        title = "Sentinel audit check"
+        description = "Monitors governance audit sentinel"
+
+        def run(self, workdir: Path | None = None) -> Finding:
+            return Finding(
+                check_id="sentinel:audit",
+                verdict=Verdict.PASS,
+                message="Sentinel active",
+                evidence=[Evidence(locator="sentinel://check", sha256="0" * 64)],
+            )
+
+    check = SentinelCheck()
+    _DEFAULT_REGISTRY.register(check)
+    try:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["govern", "audit", "--list", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        ids = {item["check_id"] for item in data}
+        assert "sentinel:audit" in ids
+    finally:
+        _DEFAULT_REGISTRY.unregister("sentinel:audit")
+
