@@ -9,13 +9,14 @@ Covers:
 * Honesty: at least one control is marked ``"partial"`` and at least one
   is marked ``"todo"`` (the map is not all-green).
 * Grounding: every ``selector`` event-type token cited by the map is a
-  literal ``event_type`` string in the Bernstein source tree.
+  literal ``event_type`` string emitted or referenced in the Bernstein source tree.
 * End-to-end: ``build_evidence_pack`` produces a well-formed pack for
   ``cosai`` whose ``controls.json`` matches the map and whose manifest
   counts match the actual status distribution.
-* Docs path integrity: ``test_cosai_mapping_paths_exist`` parses
-  ``docs/compliance/cosai-mapping.md`` and validates that every cited
-  module and test file exists on disk.
+* Docs path integrity: ``test_cosai_mapping_paths_exist_and_exercise_modules``
+  parses ``docs/compliance/cosai-mapping.md`` and validates that every cited
+  module and test file exists on disk and that each exercising test
+  actually references its corresponding implementation module.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ import hashlib
 import json
 import re
 import zipfile
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -35,6 +37,8 @@ from bernstein.compliance.evidence_pack import (
     get_standard_map,
 )
 
+pytestmark = pytest.mark.whole_tree_guard
+
 # Selector tokens that are legitimate evidence but are not themselves
 # ``event_type`` literals (lineage / cost-ledger fields or the "n/a" placeholder).
 _NON_EVENT_SELECTOR_TOKENS: frozenset[str] = frozenset(
@@ -44,8 +48,6 @@ _NON_EVENT_SELECTOR_TOKENS: frozenset[str] = frozenset(
         "model",
         "task_id",
         "usd",
-        "resource_type",
-        "resource_id",
         "n/a",
     }
 )
@@ -54,20 +56,38 @@ _VALID_STATUSES: frozenset[str] = frozenset({"mapped", "partial", "todo"})
 
 
 def _source_event_types() -> set[str]:
-    """Collect every literal ``event_type`` string used in the src tree."""
-    src_root = Path(__file__).resolve().parents[3] / "src" / "bernstein"
+    """Collect every literal ``event_type`` string actively used in the codebase.
+
+    Scans for direct ``event_type="..."`` call sites as well as ``*_EVENT_* = "..."``
+    and ``EVENT_* = "..."`` constant definitions that are referenced in the codebase.
+    """
+    repo_root = Path(__file__).resolve().parents[3]
+    src_root = repo_root / "src" / "bernstein"
+    tests_root = repo_root / "tests"
     assert src_root.is_dir(), src_root
-    found: set[str] = set()
+
     call_pat = re.compile(r'event_type\s*=\s*["\']([a-z0-9_.]+)["\']')
-    const_pat = re.compile(r'EVENT[A-Z_]*\s*=\s*["\']([a-z0-9_.]+)["\']')
-    for path in src_root.rglob("*.py"):
+    const_pat = re.compile(r'\b([A-Z0-9_]*EVENT[A-Z0-9_]*)\s*=\s*["\']([a-z0-9_.]+)["\']')
+    word_pat = re.compile(r"\b[A-Z0-9_]+\b")
+
+    word_counts: Counter[str] = Counter()
+    call_events: set[str] = set()
+    constants: dict[str, str] = {}
+
+    all_paths = list(src_root.rglob("*.py")) + list(tests_root.rglob("*.py"))
+    for path in all_paths:
         try:
             text = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        found.update(call_pat.findall(text))
-        found.update(const_pat.findall(text))
-    return found
+        call_events.update(call_pat.findall(text))
+        for cname, cval in const_pat.findall(text):
+            constants[cname] = cval
+        for w in word_pat.findall(text):
+            word_counts[w] += 1
+
+    active_const_events = {cval for cname, cval in constants.items() if word_counts[cname] >= 2}
+    return call_events | active_const_events
 
 
 @pytest.fixture(scope="module")
@@ -102,6 +122,9 @@ def test_every_cosai_control_is_counted_exactly_once() -> None:
     partial = statuses.count("partial")
     todo = statuses.count("todo")
     assert mapped + partial + todo == len(controls)
+    assert mapped == 10
+    assert partial == 2
+    assert todo == 1
 
 
 def test_map_honesty_declares_partial_and_todo() -> None:
@@ -183,8 +206,9 @@ def test_build_evidence_pack_wellformed(tmp_path: Path) -> None:
     assert (
         pack.controls_mapped + pack.controls_partial + pack.controls_organisational + pack.controls_todo == n_controls
     )
-    assert pack.controls_todo > 0
-    assert pack.controls_partial > 0
+    assert pack.controls_mapped == 10
+    assert pack.controls_partial == 2
+    assert pack.controls_todo == 1
     assert out.is_file()
 
     with zipfile.ZipFile(out) as zf:
@@ -222,21 +246,55 @@ def test_build_evidence_pack_is_deterministic(tmp_path: Path) -> None:
     assert (tmp_path / "a.zip").read_bytes() == (tmp_path / "b.zip").read_bytes()
 
 
-def test_cosai_mapping_paths_exist() -> None:
-    """Every module and test path cited in docs/compliance/cosai-mapping.md must exist."""
+def test_cosai_mapping_paths_exist_and_exercise_modules() -> None:
+    """Every module and test path cited in docs/compliance/cosai-mapping.md must exist,
+
+    and each cited exercising test must actually reference/import the cited module.
+    """
     repo_root = Path(__file__).resolve().parents[3]
     doc_path = repo_root / "docs" / "compliance" / "cosai-mapping.md"
     assert doc_path.is_file(), f"Missing docs file: {doc_path}"
 
     text = doc_path.read_text(encoding="utf-8")
-    # Matches `src/bernstein/...` and `tests/unit/...` cited in tables or prose
-    paths_in_doc = set(re.findall(r"`((?:src|tests)/[a-zA-Z0-9_./\-]+\.py)`", text))
-    assert paths_in_doc, "No source or test paths found in doc mapping tables"
 
-    missing: list[str] = []
-    for rel_path in sorted(paths_in_doc):
-        full_path = repo_root / rel_path
-        if not full_path.exists():
-            missing.append(rel_path)
+    # Match rows whose first column is a sub-clause ID under one of the three principles
+    control_prefixes = ("human-governed-accountable.", "bounded-resilient.", "transparent-verifiable.")
+    rows: list[list[str]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("|") or not line.endswith("|"):
+            continue
+        cells = [c.strip().strip("`") for c in line.strip("|").split("|")]
+        if len(cells) >= 5 and any(cells[0].startswith(p) for p in control_prefixes):
+            rows.append(cells)
 
-    assert not missing, f"cosai-mapping.md cites paths that do not exist: {missing}"
+    assert len(rows) == 13, f"Expected 13 control rows in cosai-mapping.md, found {len(rows)}"
+
+    missing_paths: list[str] = []
+    unrelated_tests: list[tuple[str, str, str]] = []
+
+    for cells in rows:
+        ctrl_id = cells[0]
+        mod_path = cells[3]
+        test_path = cells[4]
+        if mod_path == "n/a" or test_path == "n/a":
+            continue
+
+        full_mod = repo_root / mod_path
+        full_test = repo_root / test_path
+
+        if not full_mod.exists():
+            missing_paths.append(mod_path)
+        if not full_test.exists():
+            missing_paths.append(test_path)
+
+        if full_mod.exists() and full_test.exists():
+            test_content = full_test.read_text(encoding="utf-8")
+            mod_stem = full_mod.stem
+            mod_import = mod_path.replace("src/", "").replace(".py", "").replace("/", ".")
+            # The test must reference the module name or import path
+            if mod_stem not in test_content and mod_import not in test_content:
+                unrelated_tests.append((ctrl_id, mod_path, test_path))
+
+    assert not missing_paths, f"cosai-mapping.md cites paths that do not exist: {missing_paths}"
+    assert not unrelated_tests, f"cosai-mapping.md cites tests that do not reference module: {unrelated_tests}"

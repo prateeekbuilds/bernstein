@@ -1,20 +1,25 @@
-"""CoSAI Secure-by-Design patterns and Risk Map control map.
+"""CoSAI Security Principles for Agentic Systems & Risk Map control map.
 
 Operators running compliance-sensitive agentic workloads need to show,
 from their own run evidence, which CoSAI (Coalition for Secure AI, OASIS
-Open Project) Secure-by-Design principles and Risk Map controls a
-Bernstein run covers. This module provides the CoSAI analogue of the EU
+Open Project) Security Principles for Agentic Systems and Risk Map controls
+a Bernstein run covers. This module provides the CoSAI analogue of the EU
 AI Act, OWASP ASI/AST, and ISO/IEC 42001 control maps in
 ``evidence_pack.py``.
 
-The map is structured around the three core principles from the CoSAI
-WS4 "Secure Design Patterns for Agentic Systems" specification:
-* ``human-governed-accountable``: Human oversight, identity, and mandate governance.
-* ``bounded-resilient``: Capability bounding, sandboxing, resource caps, and supply chain integrity.
-* ``transparent-verifiable``: Tamper-evident audit logging, artifact lineage, and replayability.
+The map is structured around the three core principles published by the
+CoSAI Technical Steering Committee (TSC) in *Security Principles for Agentic
+Systems* (``cosai-oasis/cosai-tsc``, ``security-principles-for-agentic-systems.md``):
+* ``human-governed-accountable``: Human-governed and Accountable.
+* ``bounded-resilient``: Bounded and Resilient.
+* ``transparent-verifiable``: Transparent and Verifiable.
 
-Where the CoSAI Risk Map names a control, its ``controls.yaml``
-identifier is associated with the requirement.
+Sub-clause identifiers (e.g. ``human-governed-accountable.oversight``) are
+Bernstein's internal control IDs organized under the TSC's three top-level
+principles. Where the CoSAI Risk Map (``cosai-oasis/secure-ai-tooling``,
+``risk-map/yaml/controls.yaml``) defines a corresponding control, its
+upstream identifier (e.g. ``controlAgentPluginUserControl``) is cited. Where
+no direct Risk Map control exists, no Risk Map ID is asserted.
 
 Three-state honesty rule:
 * ``"mapped"``  - the chain contains records that satisfy the control;
@@ -34,7 +39,7 @@ The block is consumed by ``evidence_pack.build_evidence_pack`` under the
     }
 
 CoSAI documents are published under CC BY 4.0: principle names are quoted
-with attribution and control descriptions are paraphrased.
+with attribution to the CoSAI TSC and control descriptions are paraphrased.
 """
 
 from __future__ import annotations
@@ -45,27 +50,27 @@ from typing import Any
 STANDARD_ID: str = "cosai"
 
 #: Human-readable catalogue name emitted into ``controls.json``.
-REGULATION: str = "CoSAI Secure-by-Design Patterns for Agentic Systems & Risk Map Controls"
+REGULATION: str = "CoSAI Security Principles for Agentic Systems & Risk Map Controls"
 
 # ---------------------------------------------------------------------------
-# CoSAI WS4 principles & Risk Map control map
+# CoSAI TSC principles & Risk Map control map
 # ---------------------------------------------------------------------------
 #
-# Each entry maps a CoSAI WS4 principle identifier / Risk Map control to:
-#   * ``control_id``  - WS4 principle sub-clause identifier.
-#   * ``requirement`` - Paraphrased requirement text and Bernstein mechanism.
+# Each entry maps a Bernstein control identifier under the CoSAI TSC principles to:
+#   * ``control_id``  - Internal principle sub-clause identifier.
+#   * ``requirement`` - Paraphrased requirement text, Risk Map ID (if any), and mechanism.
 #   * ``artefact``    - Bundle file carrying the evidence.
 #   * ``selector``    - Literal event_type tokens or attribute selectors.
 #   * ``status``      - "mapped", "partial", or "todo".
 
 CONTROLS: list[dict[str, Any]] = [
     # -----------------------------------------------------------------------
-    # Principle 1: Human-Governed and Accountable
+    # Principle 1: Human-governed and Accountable
     # -----------------------------------------------------------------------
     {
         "control_id": "human-governed-accountable.oversight",
         "requirement": (
-            "Human oversight and intervention (Risk Map: controlHumanApprovalAndIntervention): "
+            "Human oversight and user control (Risk Map: controlAgentPluginUserControl): "
             "Sensitive agent actions require human approval; approval states, resolver identities, "
             "and auto-approval decisions are cryptographically recorded in the audit chain."
         ),
@@ -76,9 +81,8 @@ CONTROLS: list[dict[str, Any]] = [
     {
         "control_id": "human-governed-accountable.dual-control",
         "requirement": (
-            "Dual authorization for critical operations (Risk Map: controlDualAuthorization): "
-            "Multi-party approval policies enforce quorum requirements for high-risk actions "
-            "and record separate resolution signatures."
+            "Dual authorization for critical operations: Multi-party approval policies enforce "
+            "quorum requirements for high-risk actions and record separate resolution signatures."
         ),
         "artefact": "audit-chain/events.jsonl",
         "selector": "approval_pending,approval_resolved",
@@ -87,7 +91,7 @@ CONTROLS: list[dict[str, Any]] = [
     {
         "control_id": "human-governed-accountable.identity",
         "requirement": (
-            "Agent identity and authentication (Risk Map: controlAgentIdentityAndSigning): "
+            "Agent identity and credential isolation (Risk Map: controlAgentCredentialIsolation): "
             "Agents authenticate via cryptographic agent cards signed with detached JWS (Ed25519); "
             "delegation chains between parent and subagents are minted and verified."
         ),
@@ -98,9 +102,8 @@ CONTROLS: list[dict[str, Any]] = [
     {
         "control_id": "human-governed-accountable.mandate",
         "requirement": (
-            "Mandate and consent governance (Risk Map: controlMandateConsentGovernance): "
-            "User mandate and consent boundaries are checked before task execution, and mandate "
-            "consent or revocation events are chained."
+            "Mandate and consent governance: User mandate and consent boundaries are checked "
+            "before task execution, and mandate consent or revocation events are chained."
         ),
         "artefact": "audit-chain/events.jsonl",
         "selector": "mandate.consent_receipt,mandate.revocation",
@@ -112,7 +115,7 @@ CONTROLS: list[dict[str, Any]] = [
     {
         "control_id": "bounded-resilient.least-privilege",
         "requirement": (
-            "Least privilege and capability bounding (Risk Map: controlLeastPrivilegeCapabilityBounding): "
+            "Least privilege and plugin permissions (Risk Map: controlAgentPluginPermissions): "
             "Lethal-trifecta matrix bounds agent agency across private data, untrusted input, and external egress. "
             "Unauthorized capability expansion is denied and recorded."
         ),
@@ -123,7 +126,7 @@ CONTROLS: list[dict[str, Any]] = [
     {
         "control_id": "bounded-resilient.sandboxing",
         "requirement": (
-            "Execution sandboxing and isolation (Risk Map: controlExecutionSandboxing): "
+            "Execution sandboxing and bounds (Risk Map: controlAgentExecutionBounds): "
             "Tool and command execution runs under restricted sandbox profiles with strict command "
             "allowlists; sandbox escape attempts are detected and recorded."
         ),
@@ -134,9 +137,8 @@ CONTROLS: list[dict[str, Any]] = [
     {
         "control_id": "bounded-resilient.resource-bounds",
         "requirement": (
-            "Resource and cost bounding (Risk Map: controlResourceAndCostBounding): "
-            "Run-level budget ceilings, token usage limits, and wall-clock execution deadlines bound "
-            "consumption; cost ledger snapshots track per-task and per-model spend."
+            "Resource and cost bounding: Run-level budget ceilings, token usage limits, and wall-clock "
+            "execution deadlines bound consumption; cost ledger snapshots track per-task and per-model spend."
         ),
         "artefact": "costs/cost_history.jsonl",
         "selector": "budget.exhausted,budget.warning,task.deadline_exceeded,model,task_id,usd",
@@ -145,7 +147,7 @@ CONTROLS: list[dict[str, Any]] = [
     {
         "control_id": "bounded-resilient.supply-chain",
         "requirement": (
-            "Supply chain and skill integrity (Risk Map: controlSupplyChainIntegrity): "
+            "Supply chain component identity provenance (Risk Map: controlComponentIdentityProvenance): "
             "Skill packages and catalog entries must carry verified Ed25519 signatures prior to installation; "
             "fetch, install, upgrade, and uninstall operations are audited."
         ),
@@ -156,9 +158,9 @@ CONTROLS: list[dict[str, Any]] = [
     {
         "control_id": "bounded-resilient.codeguard",
         "requirement": (
-            "CoSAI CodeGuard rule set preset (Risk Map: controlCodeGuardPreset): "
-            "Automated guardrail preset loaded with CoSAI CodeGuard rules. Not currently loaded as a "
-            "pre-configured guardrail preset in Bernstein."
+            "CoSAI CodeGuard rule set preset: Automated guardrail preset loaded with CoSAI CodeGuard rules. "
+            "CodeGuard (cosai-oasis/project-codeguard) is not currently loaded as a pre-configured guardrail "
+            "preset in Bernstein."
         ),
         "artefact": "n/a",
         "selector": "n/a",
@@ -170,7 +172,7 @@ CONTROLS: list[dict[str, Any]] = [
     {
         "control_id": "transparent-verifiable.audit-trail",
         "requirement": (
-            "Tamper-evident audit logging (Risk Map: controlTamperEvidentAuditLogging): "
+            "Agent observability and tamper-evident audit logging (Risk Map: controlAgentObservability): "
             "All task transitions, agent lifecycle state changes, and command invocations are logged into an "
             "RFC 2104 HMAC-chained audit log with offline verification."
         ),
@@ -192,18 +194,19 @@ CONTROLS: list[dict[str, Any]] = [
     {
         "control_id": "transparent-verifiable.replay-reproducibility",
         "requirement": (
-            "Trajectory reconstruction and replay (Risk Map: controlTrajectoryReconstructionAndReplay): "
-            "Deterministic replay journaling records full execution steps and state transitions, enabling "
-            "offline reconstruction and verification of agent trajectories."
+            "Deterministic trajectory reconstruction: Task and agent lifecycle transitions in the HMAC "
+            "audit chain record coarse execution flow (task.transition, agent.transition). Fine-grained "
+            "step-level deterministic replay execution is tracked in local runtime journals (.sdd/runtime/) "
+            "rather than emitted directly as audit-chain events."
         ),
         "artefact": "audit-chain/events.jsonl",
-        "selector": "replay.step,replay.export",
-        "status": "mapped",
+        "selector": "task.transition,agent.transition",
+        "status": "partial",
     },
     {
         "control_id": "transparent-verifiable.context-integrity",
         "requirement": (
-            "Context and prompt integrity (Risk Map: controlContextAndPromptIntegrity): "
+            "Input validation, sanitization, and context integrity (Risk Map: controlInputValidationAndSanitization): "
             "Screening and audit recording of prompt injection and context capsules. Detection of "
             "semantic memory poisoning across multiple sessions remains partial."
         ),
@@ -216,6 +219,10 @@ CONTROLS: list[dict[str, Any]] = [
 #: Controls whose full implementation or signal chaining is deferred.
 DEFERRED: list[str] = [
     "bounded-resilient.codeguard: CoSAI CodeGuard rule set preset not yet bundled as a guardrail preset.",
+    (
+        "transparent-verifiable.replay-reproducibility: step-level replay journal is local to .sdd/runtime/ "
+        "rather than audit-chained."
+    ),
     "transparent-verifiable.context-integrity: cross-session semantic memory poisoning detection is not yet chained.",
 ]
 
