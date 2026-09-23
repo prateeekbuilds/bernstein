@@ -171,6 +171,7 @@ def test_govern_audit_skip_all_checks_fails_nonzero(tmp_path: Path) -> None:
 
 def test_govern_audit_executes_module_level_registered_checks() -> None:
     """Checks registered into the shared default registry (e.g. from #5837 sentinel) are executed by CLI."""
+
     class SentinelCheck:
         check_id = "sentinel:audit"
         area = "sentinel"
@@ -196,4 +197,3 @@ def test_govern_audit_executes_module_level_registered_checks() -> None:
         assert "sentinel:audit" in ids
     finally:
         _DEFAULT_REGISTRY.unregister("sentinel:audit")
-
