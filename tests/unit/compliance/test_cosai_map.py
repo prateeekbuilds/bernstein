@@ -96,21 +96,24 @@ def _source_event_types() -> set[str]:
         for node in ast.walk(tree):
             if isinstance(node, ast.Assign):
                 for target in node.targets:
-                    if isinstance(target, ast.Name) and (
-                        "EVENT" in target.id or target.id.startswith("EVENT_")
+                    if (
+                        isinstance(target, ast.Name)
+                        and ("EVENT" in target.id or target.id.startswith("EVENT_"))
+                        and isinstance(node.value, ast.Constant)
+                        and isinstance(node.value.value, str)
                     ):
-                        if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-                            constants[target.id] = node.value.value
+                        constants[target.id] = node.value.value
 
             elif isinstance(node, ast.Call):
                 for kw in node.keywords:
-                    if kw.arg == "event_type":
-                        if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
-                            emitted_events.add(kw.value.value)
-                        elif isinstance(kw.value, ast.Name):
-                            name_usages[kw.value.id] += 1
-                        elif isinstance(kw.value, ast.Attribute):
-                            name_usages[kw.value.attr] += 1
+                    if kw.arg != "event_type":
+                        continue
+                    if isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                        emitted_events.add(kw.value.value)
+                    elif isinstance(kw.value, ast.Name):
+                        name_usages[kw.value.id] += 1
+                    elif isinstance(kw.value, ast.Attribute):
+                        name_usages[kw.value.attr] += 1
 
             elif isinstance(node, ast.Name):
                 name_usages[node.id] += 1
