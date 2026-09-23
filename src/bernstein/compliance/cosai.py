@@ -1,15 +1,15 @@
-"""CoSAI Security Principles for Agentic Systems & Risk Map control map.
+"""CoSAI Principles for Secure-by-Design Agentic Systems & Risk Map control map.
 
 Operators running compliance-sensitive agentic workloads need to show,
 from their own run evidence, which CoSAI (Coalition for Secure AI, OASIS
-Open Project) Security Principles for Agentic Systems and Risk Map controls
+Open Project) Principles for Secure-by-Design Agentic Systems and Risk Map controls
 a Bernstein run covers. This module provides the CoSAI analogue of the EU
 AI Act, OWASP ASI/AST, and ISO/IEC 42001 control maps in
 ``evidence_pack.py``.
 
 The map is structured around the three core principles published by the
-CoSAI Technical Steering Committee (TSC) in *Security Principles for Agentic
-Systems* (``cosai-oasis/cosai-tsc``, ``security-principles-for-agentic-systems.md``):
+CoSAI Technical Steering Committee (TSC) in *CoSAI Principles for Secure-by-Design
+Agentic Systems* (``cosai-oasis/cosai-tsc``, ``security-principles-for-agentic-systems.md``):
 * ``human-governed-accountable``: Human-governed and Accountable.
 * ``bounded-resilient``: Bounded and Resilient.
 * ``transparent-verifiable``: Transparent and Verifiable.
@@ -38,8 +38,10 @@ The block is consumed by ``evidence_pack.build_evidence_pack`` under the
         "deferred": [ <str>, ... ],
     }
 
-CoSAI documents are published under CC BY 4.0: principle names are quoted
-with attribution to the CoSAI TSC and control descriptions are paraphrased.
+CoSAI TSC guidance documents (cosai-oasis/cosai-tsc) are published under CC BY 4.0;
+Risk Map controls (cosai-oasis/secure-ai-tooling) are published under Apache-2.0.
+Principle titles are quoted with attribution to the CoSAI TSC and control descriptions
+are paraphrased.
 """
 
 from __future__ import annotations
@@ -50,7 +52,7 @@ from typing import Any
 STANDARD_ID: str = "cosai"
 
 #: Human-readable catalogue name emitted into ``controls.json``.
-REGULATION: str = "CoSAI Security Principles for Agentic Systems & Risk Map Controls"
+REGULATION: str = "CoSAI Principles for Secure-by-Design Agentic Systems & Risk Map Controls"
 
 # ---------------------------------------------------------------------------
 # CoSAI TSC principles & Risk Map control map
@@ -82,16 +84,17 @@ CONTROLS: list[dict[str, Any]] = [
         "control_id": "human-governed-accountable.dual-control",
         "requirement": (
             "Dual authorization for critical operations: Multi-party approval policies enforce "
-            "quorum requirements for high-risk actions and record separate resolution signatures."
+            "quorum requirements for high-risk actions. Multi-party resolution signatures and "
+            "quorum validation are not yet emitted to the audit chain."
         ),
-        "artefact": "audit-chain/events.jsonl",
-        "selector": "approval_pending,approval_resolved",
-        "status": "mapped",
+        "artefact": "n/a",
+        "selector": "n/a",
+        "status": "todo",
     },
     {
         "control_id": "human-governed-accountable.identity",
         "requirement": (
-            "Agent identity and credential isolation (Risk Map: controlAgentCredentialIsolation): "
+            "Agent identity and integrity management (Risk Map: controlAgentIntegrityManagement): "
             "Agents authenticate via cryptographic agent cards signed with detached JWS (Ed25519); "
             "delegation chains between parent and subagents are minted and verified."
         ),
@@ -102,8 +105,8 @@ CONTROLS: list[dict[str, Any]] = [
     {
         "control_id": "human-governed-accountable.mandate",
         "requirement": (
-            "Mandate and consent governance: User mandate and consent boundaries are checked "
-            "before task execution, and mandate consent or revocation events are chained."
+            "Payment mandate and consent governance: User spending mandates and consent boundaries "
+            "are checked before task execution, and mandate consent or revocation events are chained."
         ),
         "artefact": "audit-chain/events.jsonl",
         "selector": "mandate.consent_receipt,mandate.revocation",
@@ -120,39 +123,29 @@ CONTROLS: list[dict[str, Any]] = [
             "Unauthorized capability expansion is denied and recorded."
         ),
         "artefact": "audit-chain/events.jsonl",
-        "selector": "capability_matrix_refusal,command",
+        "selector": "capability_matrix_refusal",
         "status": "mapped",
     },
     {
         "control_id": "bounded-resilient.sandboxing",
         "requirement": (
-            "Execution sandboxing and bounds (Risk Map: controlAgentExecutionBounds): "
-            "Tool and command execution runs under restricted sandbox profiles with strict command "
-            "allowlists; sandbox escape attempts are detected and recorded."
+            "Execution sandboxing and bounds: Tool and command execution runs under restricted sandbox "
+            "profiles with strict command allowlists; runtime enforcement occurs at the policy layer "
+            "without chained escape event records."
         ),
-        "artefact": "audit-chain/events.jsonl",
-        "selector": "sandbox_escape_attempt,command",
-        "status": "mapped",
+        "artefact": "n/a",
+        "selector": "n/a",
+        "status": "partial",
     },
     {
         "control_id": "bounded-resilient.resource-bounds",
         "requirement": (
-            "Resource and cost bounding: Run-level budget ceilings, token usage limits, and wall-clock "
-            "execution deadlines bound consumption; cost ledger snapshots track per-task and per-model spend."
+            "Resource and cost bounding (Risk Map: controlAgentExecutionBounds): "
+            "Run-level budget ceilings and token bounds restrict consumption; cost ledger snapshots "
+            "track spent and budget amounts."
         ),
         "artefact": "costs/cost_history.jsonl",
-        "selector": "budget.exhausted,budget.warning,task.deadline_exceeded,model,task_id,usd",
-        "status": "mapped",
-    },
-    {
-        "control_id": "bounded-resilient.supply-chain",
-        "requirement": (
-            "Supply chain component identity provenance (Risk Map: controlComponentIdentityProvenance): "
-            "Skill packages and catalog entries must carry verified Ed25519 signatures prior to installation; "
-            "fetch, install, upgrade, and uninstall operations are audited."
-        ),
-        "artefact": "audit-chain/events.jsonl",
-        "selector": "skill.catalog.install,skill.catalog.fetch,skill.catalog.upgrade,skill.catalog.uninstall",
+        "selector": "spent_usd,budget_usd",
         "status": "mapped",
     },
     {
@@ -170,14 +163,25 @@ CONTROLS: list[dict[str, Any]] = [
     # Principle 3: Transparent and Verifiable
     # -----------------------------------------------------------------------
     {
+        "control_id": "transparent-verifiable.supply-chain",
+        "requirement": (
+            "Supply chain component verification: Skill packages and catalog entries carry "
+            "verified Ed25519 signatures prior to installation; fetch, install, upgrade, "
+            "and uninstall operations are audited."
+        ),
+        "artefact": "audit-chain/events.jsonl",
+        "selector": "skill.catalog.install,skill.catalog.fetch,skill.catalog.upgrade,skill.catalog.uninstall",
+        "status": "mapped",
+    },
+    {
         "control_id": "transparent-verifiable.audit-trail",
         "requirement": (
             "Agent observability and tamper-evident audit logging (Risk Map: controlAgentObservability): "
-            "All task transitions, agent lifecycle state changes, and command invocations are logged into an "
+            "All task transitions and agent lifecycle state changes are logged into an "
             "RFC 2104 HMAC-chained audit log with offline verification."
         ),
         "artefact": "audit-chain/events.jsonl",
-        "selector": "task.transition,agent.transition,command",
+        "selector": "task.transition,agent.transition",
         "status": "mapped",
     },
     {
@@ -188,7 +192,7 @@ CONTROLS: list[dict[str, Any]] = [
             "detecting tampering against recorded hashes."
         ),
         "artefact": "lineage/log.jsonl",
-        "selector": "lineage_tamper_detected,content_hash,parent_hashes",
+        "selector": "content_hash,parent_hashes",
         "status": "mapped",
     },
     {
@@ -211,13 +215,15 @@ CONTROLS: list[dict[str, Any]] = [
             "semantic memory poisoning across multiple sessions remains partial."
         ),
         "artefact": "audit-chain/events.jsonl",
-        "selector": "context.capsule_recorded,capability_matrix_refusal",
+        "selector": "context.capsule,capability_matrix_refusal",
         "status": "partial",
     },
 ]
 
 #: Controls whose full implementation or signal chaining is deferred.
 DEFERRED: list[str] = [
+    "human-governed-accountable.dual-control: multi-party quorum signatures and verification are not chained.",
+    "bounded-resilient.sandboxing: sandbox execution is enforced at runtime without chained escape events.",
     "bounded-resilient.codeguard: CoSAI CodeGuard rule set preset not yet bundled as a guardrail preset.",
     (
         "transparent-verifiable.replay-reproducibility: step-level replay journal is local to .sdd/runtime/ "

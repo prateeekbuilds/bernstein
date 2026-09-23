@@ -18,7 +18,7 @@ so an auditor can re-derive the SHA-256 of the bundle and compare.
 
 The mapping from regulatory ``control_id`` to a record selector is
 declarative and lives inside this module (see ``_STANDARD_MAPS``) or,
-for ``owasp-asi``, ``owasp-skills`` and ``iso-42001``, in a dedicated
+for ``owasp-asi``, ``owasp-skills``, ``iso-42001`` and ``cosai``, in a dedicated
 module registered below. DORA and FINOS AIGF control maps are tracked
 under issue #1316 and are not selectable until the underlying clause
 mappings are reviewed by subject-matter experts; attempting to build a
@@ -160,11 +160,11 @@ _STANDARD_MAPS: dict[str, dict[str, Any]] = {
     },
 }
 
-# The OWASP ASI / AST maps live in dedicated modules (one control class per
-# module) and are registered here so ``build_evidence_pack`` reads them the
-# same way it reads ``ai-act``. Registration is a plain assignment - the
-# modules only depend on stdlib, so importing them at module load is cheap
-# and side-effect free.
+# The OWASP ASI / AST, ISO 42001 and CoSAI maps live in dedicated modules (one
+# control class per module) and are registered here so ``build_evidence_pack``
+# reads them the same way it reads ``ai-act``. Registration is a plain
+# assignment - the modules only depend on stdlib, so importing them at module
+# load is cheap and side-effect free.
 from bernstein.compliance import cosai as _cosai  # noqa: E402
 from bernstein.compliance import iso42001 as _iso42001  # noqa: E402
 from bernstein.compliance import owasp_asi as _owasp_asi  # noqa: E402

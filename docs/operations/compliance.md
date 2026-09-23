@@ -406,4 +406,3 @@ EU AI Act high-risk classification or a HIPAA covered entity.
   - ISO/IEC 42001 Annex A control map and evidence pack coverage.
 - [`compliance/cosai-mapping.md`](../compliance/cosai-mapping.md)
   - CoSAI Secure-by-Design control map and Risk Map coverage.
-
