@@ -199,8 +199,7 @@ def test_risk_map_ids_exist_upstream() -> None:
         if match:
             risk_id = match.group(1)
             assert risk_id in _PINNED_RISK_MAP_IDS, (
-                f"Unknown Risk Map ID {risk_id} in {control['control_id']}; "
-                f"expected one of {_PINNED_RISK_MAP_IDS}"
+                f"Unknown Risk Map ID {risk_id} in {control['control_id']}; expected one of {_PINNED_RISK_MAP_IDS}"
             )
 
 
@@ -385,16 +384,9 @@ def test_cosai_mapping_page_and_map_stay_in_sync() -> None:
             if full_mod.exists() and full_test.exists():
                 test_content = full_test.read_text(encoding="utf-8")
                 mod_stem = full_mod.stem
-                mod_import = (
-                    page_data["module_path"]
-                    .replace("src/", "")
-                    .replace(".py", "")
-                    .replace("/", ".")
-                )
+                mod_import = page_data["module_path"].replace("src/", "").replace(".py", "").replace("/", ".")
                 if mod_stem not in test_content and mod_import not in test_content:
-                    unrelated_tests.append(
-                        (ctrl_id, page_data["module_path"], page_data["test_path"])
-                    )
+                    unrelated_tests.append((ctrl_id, page_data["module_path"], page_data["test_path"]))
 
     assert not missing_paths, f"cosai-mapping.md cites paths that do not exist: {missing_paths}"
     assert not unrelated_tests, f"cosai-mapping.md cites tests that do not reference module: {unrelated_tests}"
