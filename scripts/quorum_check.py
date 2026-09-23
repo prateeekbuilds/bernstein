@@ -41,12 +41,17 @@ The rules, in the order they are applied
    approval whatever it touches: anyone who can push a branch can open one.
 4. The maintainer's own pull requests merge without approvals, and any
    standing `changes requested` from a committer blocks them (section 6).
+   Until 2026-10-05 a pull request the maintainer has pushed to and then
+   declared adopted in the thread is treated the same way (section 3).
 5. Everyone else needs the quorum: two approvals, at least one from a core
    reviewer, none of them from anyone who wrote or pushed the change. Over
    400 changed lines, or on a path containing `sandbox`, `security` or
    `audit`, a third approval is required and two of the three must be core.
    Over 1,000 changed lines the maintainer approves or the change is split.
-   A protected path (any CODEOWNERS entry that is not `*`) needs its owner.
+   A protected path (any CODEOWNERS entry that is not `*`) needs an approval
+   from one of its owners: a line naming several people is satisfied by any
+   one of them, as GitHub's own code-owner review works, and never by the
+   author or by anyone who pushed to the branch.
 
 Approvals count only when they were given on the current head commit: a push
 after an approval means nobody has read what is about to merge. A `changes
@@ -79,6 +84,13 @@ CODEOWNERS_PATH = ".github/CODEOWNERS"
 # over the second number the change is split or goes to the maintainer.
 THIRD_APPROVAL_LINES = 400
 MAINTAINER_OR_SPLIT_LINES = 1000
+
+# Section 3, adopted pull requests: until this date a change the maintainer
+# has pushed to merges as their own once they say so in the thread. The notice
+# is matched literally; it must be given on the current head commit, so a
+# later push needs a new one, exactly like an approval.
+ADOPTION_ENDS = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
+ADOPTION_NOTICE = "Adopted by the maintainer: whole diff read, fixes pushed, CI green."
 
 # Section 3: these words in a path make a change sensitive whatever its size.
 SENSITIVE_WORDS = ("sandbox", "security", "audit")
@@ -209,6 +221,7 @@ class Review:
     state: str
     commit_id: str
     submitted_at: str
+    body: str = ""
 
 
 @dataclass
@@ -268,6 +281,7 @@ def fetch_pull_request(repo: str, number: int) -> PullRequest:
                 state=r.get("state", ""),
                 commit_id=r.get("commit_id") or "",
                 submitted_at=r.get("submitted_at") or "",
+                body=r.get("body") or "",
             )
             for r in raw_reviews
         ],
@@ -282,10 +296,16 @@ def standing_reviews(reviews: list[Review]) -> dict[str, Review]:
     A `commented` review does not replace an earlier approval or request for
     changes - GitHub keeps the earlier verdict standing - so it is skipped
     rather than treated as a newer state.
+
+    A dismissed review does replace it. GitHub dismisses an approval as stale
+    on the next push, and by then the approval had already withdrawn any
+    earlier request for changes; skipping the dismissal would bring that
+    request back. The dismissed review is kept as the person's latest, and it
+    counts as neither an approval nor a request for changes.
     """
     latest: dict[str, Review] = {}
     for review in reviews:
-        if not review.login or review.state in ("COMMENTED", "PENDING", "DISMISSED"):
+        if not review.login or review.state in ("COMMENTED", "PENDING"):
             continue
         current = latest.get(review.login)
         if current is None or review.submitted_at >= current.submitted_at:
@@ -366,6 +386,15 @@ def evaluate(pr: PullRequest, roster: Roster, owners: list[tuple[str, list[str]]
             )
         )
 
+    adopted = (
+        now < ADOPTION_ENDS
+        and roster.maintainer in pr.contributors
+        and any(
+            review.login == roster.maintainer and review.commit_id == pr.head_sha and ADOPTION_NOTICE in review.body
+            for review in pr.reviews
+        )
+    )
+
     if pr.author in roster.automation:
         stops = sorted(
             p
@@ -396,6 +425,12 @@ def evaluate(pr: PullRequest, roster: Roster, owners: list[tuple[str, list[str]]
         verdict.notes.append(
             "The maintainer's own change merges without approvals; a committer's "
             "*changes requested* blocks it (charter, section 6)."
+        )
+    elif adopted:
+        verdict.notes.append(
+            "Adopted by the maintainer, who pushed to the branch and said so in the thread: "
+            "it merges as their own change until 2026-10-05, and a committer's "
+            "*changes requested* blocks it (charter, section 3)."
         )
     else:
         eligible = roster.quorum_holders - {pr.author} - pr.contributors
@@ -433,21 +468,38 @@ def evaluate(pr: PullRequest, roster: Roster, owners: list[tuple[str, list[str]]
                 )
             )
 
-        protected: dict[str, list[str]] = {}
+        # A CODEOWNERS line that names several people is satisfied by any one
+        # of them, which is how GitHub's own code-owner review reads it, so
+        # the paths are grouped by the owner set of the line that won them
+        # and each group is one requirement: a line with five owners asks for
+        # one approval, not five. The author and anyone who pushed to the
+        # branch cannot be that one (section 3).
+        protected: dict[frozenset[str], list[str]] = {}
         for path in pr.paths:
             path_owners, specific = owners_for(path, owners)
             if specific:
-                for owner in path_owners:
-                    protected.setdefault(owner, []).append(path)
-        for owner, paths in sorted(protected.items()):
+                protected.setdefault(frozenset(path_owners), []).append(path)
+        for owner_set, paths in sorted(protected.items(), key=lambda item: sorted(item[0])):
+            eligible_owners = owner_set - {pr.author} - pr.contributors
             verdict.requirements.append(
                 Requirement(
                     f"approval from the owner of {', '.join(f'`{p}`' for p in paths[:3])}"
                     + (" and others" if len(paths) > 3 else ""),
-                    owner in approvals,
-                    f"@{owner}",
+                    bool(eligible_owners & approvals),
+                    _names(eligible_owners) if eligible_owners else "nobody: every owner wrote or pushed this change",
                 )
             )
+
+    if (
+        not adopted
+        and now < ADOPTION_ENDS
+        and pr.author not in roster.automation | {GITHUB_ACTIONS_BOT, roster.maintainer}
+        and roster.maintainer in pr.contributors
+    ):
+        verdict.notes.append(
+            f"@{roster.maintainer} has pushed to this branch; it merges as the maintainer's own change "
+            f"once they post the notice `{ADOPTION_NOTICE}` as a review on the current head (charter, section 3)."
+        )
 
     if stale_approvals:
         verdict.notes.append(
@@ -470,10 +522,11 @@ def annotation(verdict: Verdict) -> str:
     """
     unmet = [req for req in verdict.requirements if not req.met]
     if not unmet:
-        return verdict.title
+        return verdict.title or "unknown"
     first = unmet[0]
     rest = f" (+{len(unmet) - 1} more in the job summary)" if len(unmet) > 1 else ""
-    return f"waiting for: {first.text} - {first.who}{rest}".replace("`", "")
+    result = f"waiting for: {first.text} - {first.who}{rest}".replace("`", "")
+    return result or "waiting for: unknown reason"
 
 
 def pr_number_from_env(env: dict[str, str]) -> int | None:
