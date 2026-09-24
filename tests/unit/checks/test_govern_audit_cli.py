@@ -18,7 +18,7 @@ from click.testing import CliRunner
 
 from bernstein.cli.main import cli
 from bernstein.core.checks.contract import Evidence, Finding, Verdict
-from bernstein.core.checks.registry import _DEFAULT_REGISTRY
+from bernstein.core.checks.registry import DEFAULT_REGISTRY
 
 
 def test_govern_audit_is_reachable_from_top_level_cli() -> None:
@@ -187,7 +187,7 @@ def test_govern_audit_executes_module_level_registered_checks() -> None:
             )
 
     check = SentinelCheck()
-    _DEFAULT_REGISTRY.register(check)
+    DEFAULT_REGISTRY.register(check)
     try:
         runner = CliRunner()
         result = runner.invoke(cli, ["govern", "audit", "--list", "--json"])
@@ -196,4 +196,4 @@ def test_govern_audit_executes_module_level_registered_checks() -> None:
         ids = {item["check_id"] for item in data}
         assert "sentinel:audit" in ids
     finally:
-        _DEFAULT_REGISTRY.unregister("sentinel:audit")
+        DEFAULT_REGISTRY.unregister("sentinel:audit")

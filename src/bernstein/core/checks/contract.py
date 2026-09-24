@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from bernstein.core.evidence.bundle import _canonical_bytes
+from bernstein.core.evidence.bundle import canonical_bytes
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -60,7 +60,7 @@ class Evidence:
     @classmethod
     def from_payload(cls, locator: str, payload: dict[str, Any]) -> Evidence:
         """Create evidence by computing the canonical JSON SHA-256 digest."""
-        raw = _canonical_bytes(payload)
+        raw = canonical_bytes(payload)
         digest = hashlib.sha256(raw).hexdigest()
         return cls(locator=locator, sha256=f"sha256:{digest}")
 
@@ -109,17 +109,14 @@ class Finding:
         if not self.check_id or not self.check_id.strip():
             raise ValueError("check_id must be a non-empty string")
 
-        if isinstance(self.verdict, str):
+        if type(self.verdict) is not Verdict:
             object.__setattr__(self, "verdict", Verdict(self.verdict))
 
-        if not isinstance(self.evidence, tuple):
-            if isinstance(self.evidence, Sequence):
-                object.__setattr__(self, "evidence", tuple(self.evidence))
-            else:
-                raise TypeError("evidence must be a tuple or sequence of Evidence")
+        if type(self.evidence) is not tuple:
+            object.__setattr__(self, "evidence", tuple(self.evidence))
 
         for item in self.evidence:
-            if not isinstance(item, Evidence):
+            if type(item) is not Evidence:
                 raise TypeError(f"evidence item must be an Evidence instance, got {type(item).__name__}")
 
         # Derive area from namespaced ID if not explicitly given

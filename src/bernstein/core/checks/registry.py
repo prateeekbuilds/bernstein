@@ -41,7 +41,7 @@ class CheckRegistry:
             raise TypeError(f"Expected Check instance, got {type(check).__name__}")
 
         check_id = check.check_id
-        if not check_id or not isinstance(check_id, str) or not check_id.strip():
+        if not check_id or not check_id.strip():
             raise ValueError("check_id must be a non-empty string")
 
         if ":" not in check_id or check_id.startswith(":") or check_id.endswith(":"):
@@ -110,7 +110,7 @@ class CheckRegistry:
         for check in self.iter_checks(only_areas=only_areas, skip_ids=skip_ids):
             try:
                 finding = check.run(workdir)
-                if not isinstance(finding, Finding):
+                if type(finding) is not Finding:
                     raise TypeError(
                         f"Check '{check.check_id}' run() returned {type(finding).__name__}, expected Finding"
                     )
@@ -136,7 +136,8 @@ class CheckRegistry:
 # Global default registry and module-level conveniences
 # ---------------------------------------------------------------------------
 
-_DEFAULT_REGISTRY = CheckRegistry()
+DEFAULT_REGISTRY = CheckRegistry()
+_DEFAULT_REGISTRY = DEFAULT_REGISTRY
 
 
 def populate_default_checks(registry: CheckRegistry | None = None) -> None:
@@ -146,7 +147,7 @@ def populate_default_checks(registry: CheckRegistry | None = None) -> None:
         DoctorComplianceAdapter,
     )
 
-    reg = _DEFAULT_REGISTRY if registry is None else registry
+    reg = DEFAULT_REGISTRY if registry is None else registry
     for adapter_cls in (DoctorComplianceAdapter, ComplianceEncryptionAtRestAdapter):
         adapter = adapter_cls()
         if reg.get_check(adapter.check_id) is None:
@@ -155,22 +156,22 @@ def populate_default_checks(registry: CheckRegistry | None = None) -> None:
 
 def register(check: Check) -> None:
     """Register a check in the default registry."""
-    _DEFAULT_REGISTRY.register(check)
+    DEFAULT_REGISTRY.register(check)
 
 
 def unregister(check_id: str) -> None:
     """Unregister a check from the default registry."""
-    _DEFAULT_REGISTRY.unregister(check_id)
+    DEFAULT_REGISTRY.unregister(check_id)
 
 
 def clear() -> None:
     """Clear the default registry."""
-    _DEFAULT_REGISTRY.clear()
+    DEFAULT_REGISTRY.clear()
 
 
 def get_check(check_id: str) -> Check | None:
     """Retrieve a check from the default registry."""
-    return _DEFAULT_REGISTRY.get_check(check_id)
+    return DEFAULT_REGISTRY.get_check(check_id)
 
 
 def iter_checks(
@@ -178,7 +179,7 @@ def iter_checks(
     skip_ids: Sequence[str] | None = None,
 ) -> Iterator[Check]:
     """Iterate over checks in the default registry."""
-    return _DEFAULT_REGISTRY.iter_checks(only_areas=only_areas, skip_ids=skip_ids)
+    return DEFAULT_REGISTRY.iter_checks(only_areas=only_areas, skip_ids=skip_ids)
 
 
 def list_checks(
@@ -186,7 +187,7 @@ def list_checks(
     skip_ids: Sequence[str] | None = None,
 ) -> list[Check]:
     """Return a list of checks in the default registry matching filters."""
-    return _DEFAULT_REGISTRY.list_checks(only_areas=only_areas, skip_ids=skip_ids)
+    return DEFAULT_REGISTRY.list_checks(only_areas=only_areas, skip_ids=skip_ids)
 
 
 def run_all(
@@ -195,4 +196,5 @@ def run_all(
     skip_ids: Sequence[str] | None = None,
 ) -> list[Finding]:
     """Execute all checks in the default registry matching filters."""
-    return _DEFAULT_REGISTRY.run_all(workdir=workdir, only_areas=only_areas, skip_ids=skip_ids)
+    return DEFAULT_REGISTRY.run_all(workdir=workdir, only_areas=only_areas, skip_ids=skip_ids)
+

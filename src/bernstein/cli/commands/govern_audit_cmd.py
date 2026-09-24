@@ -17,7 +17,7 @@ from rich.table import Table
 from bernstein.cli.helpers import console
 from bernstein.core.checks.contract import Verdict
 from bernstein.core.checks.registry import (
-    _DEFAULT_REGISTRY,
+    DEFAULT_REGISTRY,
     populate_default_checks,
 )
 
@@ -76,7 +76,7 @@ def govern_audit_cmd(
       0: All executed checks passed (at least one check executed).
       1: One or more checks failed, were not measurable, or no checks were selected.
     """
-    reg = _DEFAULT_REGISTRY if registry is None else registry
+    reg = DEFAULT_REGISTRY if registry is None else registry
     populate_default_checks(reg)
 
     if list_checks:
@@ -133,8 +133,8 @@ def govern_audit_cmd(
             for f in findings
         ]
         click.echo(json.dumps(payload, indent=2))
-        has_failure = any(f.verdict != Verdict.PASS and not f.passed for f in findings)
-        raise SystemExit(1 if has_failure else 0)
+        audit_failed = any(f.verdict != Verdict.PASS and not f.passed for f in findings)
+        raise SystemExit(1 if audit_failed else 0)
 
     table = Table(title=f"Governance Audit Findings ({root.name})", show_header=True, header_style="bold cyan")
     table.add_column("Status", justify="center", no_wrap=True)
@@ -142,16 +142,16 @@ def govern_audit_cmd(
     table.add_column("Area", style="magenta")
     table.add_column("Summary / Diagnostic", style="white")
 
-    has_failures = False
+    any_failed = False
     for f in findings:
         if f.verdict == Verdict.PASS or f.passed:
             status_badge = "[bold green]PASS[/bold green]"
         elif f.verdict == Verdict.NOT_MEASURABLE:
             status_badge = "[bold yellow]UNMEASURED[/bold yellow]"
-            has_failures = True
+            any_failed = True
         else:
             status_badge = "[bold red]FAIL[/bold red]"
-            has_failures = True
+            any_failed = True
 
         msg = f.summary or f.message or f.reason or ""
         if f.remediation and f.verdict != Verdict.PASS:
@@ -172,6 +172,6 @@ def govern_audit_cmd(
         f"Failed/Unmeasurable: [bold red]{len(findings) - passed_count}[/bold red]"
     )
 
-    if has_failures:
+    if any_failed:
         raise SystemExit(1)
     raise SystemExit(0)

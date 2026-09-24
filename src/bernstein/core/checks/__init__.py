@@ -13,6 +13,7 @@ from bernstein.core.checks.contract import (
     Verdict,
 )
 from bernstein.core.checks.registry import (
+    DEFAULT_REGISTRY,
     CheckRegistry,
     clear,
     get_check,
@@ -28,6 +29,7 @@ __all__ = [
     "Check",
     "CheckRegistry",
     "ComplianceEncryptionAtRestAdapter",
+    "DEFAULT_REGISTRY",
     "DoctorComplianceAdapter",
     "Evidence",
     "Finding",
