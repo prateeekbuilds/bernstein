@@ -26,10 +26,10 @@ from bernstein.core.checks.registry import (
 )
 
 __all__ = [
+    "DEFAULT_REGISTRY",
     "Check",
     "CheckRegistry",
     "ComplianceEncryptionAtRestAdapter",
-    "DEFAULT_REGISTRY",
     "DoctorComplianceAdapter",
     "Evidence",
     "Finding",
