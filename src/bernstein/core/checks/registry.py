@@ -197,4 +197,3 @@ def run_all(
 ) -> list[Finding]:
     """Execute all checks in the default registry matching filters."""
     return DEFAULT_REGISTRY.run_all(workdir=workdir, only_areas=only_areas, skip_ids=skip_ids)
-

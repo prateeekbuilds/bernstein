@@ -7,7 +7,6 @@ pairs with canonical JSON hashing, and finding dataclass.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
