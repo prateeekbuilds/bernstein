@@ -139,7 +139,7 @@ def canonical_bytes(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
 
 
-_canonical_bytes = canonical_bytes
+_canonical_bytes = canonical_bytes  # deprecated: back-compat alias; use canonical_bytes
 
 
 def _sha256_bytes(data: bytes) -> str:

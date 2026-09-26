@@ -22,6 +22,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _check_area(check: Check) -> str:
+    """Derive the area for a check from its explicit attribute or namespaced check_id."""
+    return getattr(check, "area", "") or (check.check_id.split(":", 1)[0] if ":" in check.check_id else "")
+
+
 class CheckRegistry:
     """Registry managing registered audit checks."""
 
@@ -35,7 +40,7 @@ class CheckRegistry:
             TypeError: If ``check`` does not conform to the :class:`Check` protocol.
             ValueError: If ``check.check_id`` is invalid, not namespaced, or already registered.
         """
-        if isinstance(check, type):
+        if isinstance(check, type):  # type: ignore[reportUnnecessaryIsInstance]
             raise TypeError(f"Expected Check instance, got class '{check.__name__}'")
         if not hasattr(check, "check_id") or not hasattr(check, "run"):
             raise TypeError(f"Expected Check instance, got {type(check).__name__}")
@@ -80,7 +85,7 @@ class CheckRegistry:
             if skip_set and check_id.lower() in skip_set:
                 continue
 
-            area = getattr(check, "area", "") or (check_id.split(":", 1)[0] if ":" in check_id else "")
+            area = _check_area(check)
             if only_set and area.lower() not in only_set:
                 continue
 

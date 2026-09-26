@@ -18,11 +18,18 @@ from bernstein.cli.helpers import console
 from bernstein.core.checks.contract import Verdict
 from bernstein.core.checks.registry import (
     DEFAULT_REGISTRY,
+    _check_area,
     populate_default_checks,
 )
 
 if TYPE_CHECKING:
+    from bernstein.core.checks.contract import Finding
     from bernstein.core.checks.registry import CheckRegistry
+
+
+def _has_failures(findings: list[Finding]) -> bool:
+    """Return True if any finding is not a passing finding."""
+    return any(f.verdict != Verdict.PASS and not f.passed for f in findings)
 
 
 @click.command("audit")
@@ -85,7 +92,7 @@ def govern_audit_cmd(
             payload = [
                 {
                     "check_id": c.check_id,
-                    "area": getattr(c, "area", "") or (c.check_id.split(":", 1)[0] if ":" in c.check_id else ""),
+                    "area": _check_area(c),
                     "title": getattr(c, "title", ""),
                     "description": getattr(c, "description", ""),
                 }
@@ -101,11 +108,10 @@ def govern_audit_cmd(
         table.add_column("Description", style="dim")
 
         for c in checks:
-            area = getattr(c, "area", "") or (c.check_id.split(":", 1)[0] if ":" in c.check_id else "")
-            table.add_row(c.check_id, area, getattr(c, "title", ""), getattr(c, "description", ""))
+            table.add_row(c.check_id, _check_area(c), getattr(c, "title", ""), getattr(c, "description", ""))
 
         console.print(table)
-        console.print(f"\n[bold]{len(checks)}[/bold] check(s) registered.")
+        console.print(f"\n[bold]{len(checks)}[/bold] check(s) matched.")
         raise SystemExit(0)
 
     root = Path(workdir).resolve()
@@ -117,6 +123,8 @@ def govern_audit_cmd(
         else:
             console.print("[bold red]No checks matched the specified selector(s).[/bold red]")
         raise SystemExit(1)
+
+    has_failed = _has_failures(findings)
 
     if as_json:
         payload = [
@@ -133,8 +141,7 @@ def govern_audit_cmd(
             for f in findings
         ]
         click.echo(json.dumps(payload, indent=2))
-        audit_failed = any(f.verdict != Verdict.PASS and not f.passed for f in findings)
-        raise SystemExit(1 if audit_failed else 0)
+        raise SystemExit(1 if has_failed else 0)
 
     table = Table(title=f"Governance Audit Findings ({root.name})", show_header=True, header_style="bold cyan")
     table.add_column("Status", justify="center", no_wrap=True)
@@ -142,16 +149,13 @@ def govern_audit_cmd(
     table.add_column("Area", style="magenta")
     table.add_column("Summary / Diagnostic", style="white")
 
-    any_failed = False
     for f in findings:
         if f.verdict == Verdict.PASS or f.passed:
             status_badge = "[bold green]PASS[/bold green]"
         elif f.verdict == Verdict.NOT_MEASURABLE:
             status_badge = "[bold yellow]UNMEASURED[/bold yellow]"
-            any_failed = True
         else:
             status_badge = "[bold red]FAIL[/bold red]"
-            any_failed = True
 
         msg = f.summary or f.message or f.reason or ""
         if f.remediation and f.verdict != Verdict.PASS:
@@ -172,6 +176,6 @@ def govern_audit_cmd(
         f"Failed/Unmeasurable: [bold red]{len(findings) - passed_count}[/bold red]"
     )
 
-    if any_failed:
+    if has_failed:
         raise SystemExit(1)
     raise SystemExit(0)
