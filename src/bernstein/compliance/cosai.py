@@ -95,12 +95,12 @@ CONTROLS: list[dict[str, Any]] = [
         "control_id": "human-governed-accountable.identity",
         "requirement": (
             "Agent identity and integrity management (Risk Map: controlAgentIntegrityManagement): "
-            "Agents authenticate via cryptographic agent cards signed with detached JWS (Ed25519); "
-            "delegation chains between parent and subagents are minted and verified."
+            "Delegation minting between parent and subagents is recorded in the audit chain; "
+            "agent card signing (detached JWS, Ed25519) is not chained."
         ),
         "artefact": "audit-chain/events.jsonl",
-        "selector": "agent.transition,delegation_minted",
-        "status": "mapped",
+        "selector": "delegation_minted",
+        "status": "partial",
     },
     {
         "control_id": "human-governed-accountable.mandate",
@@ -141,8 +141,7 @@ CONTROLS: list[dict[str, Any]] = [
         "control_id": "bounded-resilient.resource-bounds",
         "requirement": (
             "Resource and cost bounding (Risk Map: controlAgentExecutionBounds): "
-            "Run-level budget ceilings and token bounds restrict consumption; cost ledger snapshots "
-            "track spent and budget amounts."
+            "Recorded spend vs budget: cost ledger snapshots track spent and budget amounts."
         ),
         "artefact": "costs/cost_history.jsonl",
         "selector": "spent_usd,budget_usd",

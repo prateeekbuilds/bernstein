@@ -30,7 +30,7 @@ Agents operate under human oversight, verified cryptographic identities, and bou
 |---|---|---|---|---|---|---|
 | `human-governed-accountable.oversight` | `controlAgentPluginUserControl` | Human approval and user control for sensitive actions | `src/bernstein/core/security/approval.py` | `tests/unit/test_approval.py` | `audit-chain/events.jsonl` | `mapped` |
 | `human-governed-accountable.dual-control` | n/a | Multi-party quorum enforcement for critical operations | n/a | n/a | n/a | `todo` |
-| `human-governed-accountable.identity` | `controlAgentIntegrityManagement` | Cryptographic agent cards and signed delegation issuance | `src/bernstein/core/security/agent_card_signer.py` | `tests/unit/test_agent_card_signer.py` | `audit-chain/events.jsonl` | `mapped` |
+| `human-governed-accountable.identity` | `controlAgentIntegrityManagement` | Delegation minting is chained; agent card signing is not (no audit event) | `src/bernstein/core/security/agent_card_signer.py` | `tests/unit/test_agent_card_signer.py` | `audit-chain/events.jsonl` | `partial` |
 | `human-governed-accountable.mandate` | n/a | Explicit payment mandate and consent tracking | `src/bernstein/core/payments/mandate.py` | `tests/unit/test_payment_mandate_audit_chain.py` | `audit-chain/events.jsonl` | `mapped` |
 
 ### Principle 2: Bounded and Resilient
@@ -41,7 +41,7 @@ Agency is strictly bounded through capability controls, sandboxing, resource bud
 |---|---|---|---|---|---|---|
 | `bounded-resilient.least-privilege` | `controlAgentPluginPermissions` | Capability matrix bounding plugin permissions against the lethal trifecta | `src/bernstein/core/security/capability_matrix.py` | `tests/unit/test_capability_matrix.py` | `audit-chain/events.jsonl` | `mapped` |
 | `bounded-resilient.sandboxing` | n/a | Sandboxed execution environments and command allowlists | `src/bernstein/core/security/command_policy.py` | `tests/unit/test_command_policy.py` | n/a | `partial` |
-| `bounded-resilient.resource-bounds` | `controlAgentExecutionBounds` | Budget ceilings, token caps, and wall-clock deadlines | `src/bernstein/core/cost/cost_tracker.py` | `tests/unit/test_budget_killswitch.py` | `costs/cost_history.jsonl` | `mapped` |
+| `bounded-resilient.resource-bounds` | `controlAgentExecutionBounds` | Recorded spend vs budget | `src/bernstein/core/cost/cost_tracker.py` | `tests/unit/test_budget_killswitch.py` | `costs/cost_history.jsonl` | `mapped` |
 | `bounded-resilient.codeguard` | n/a | Automated CoSAI CodeGuard rule set preset | n/a | n/a | n/a | `todo` |
 
 ### Principle 3: Transparent and Verifiable
@@ -56,7 +56,7 @@ Every execution step, artifact state, and trajectory transition produces tamper-
 | `transparent-verifiable.replay-reproducibility` | n/a | Trajectory logging in audit chain; step journal local to .sdd/runtime/ | `src/bernstein/core/replay/journal.py` | `tests/unit/core/replay/test_journal_identity.py` | `audit-chain/events.jsonl` | `partial` |
 | `transparent-verifiable.context-integrity` | `controlInputValidationAndSanitization` | Input validation and context capsule logging; semantic drift remains partial | `src/bernstein/core/security/owasp_asi_detectors.py` | `tests/unit/test_owasp_asi_detectors.py` | `audit-chain/events.jsonl` | `partial` |
 
-8 `mapped`, 3 `partial`, 2 `todo` - 13 of 13 controls counted across the three principles.
+7 `mapped`, 4 `partial`, 2 `todo` - 13 of 13 controls counted across the three principles.
 
 ## Licensing and Attribution
 

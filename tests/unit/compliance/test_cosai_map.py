@@ -158,8 +158,8 @@ def test_every_cosai_control_is_counted_exactly_once() -> None:
     partial = statuses.count("partial")
     todo = statuses.count("todo")
     assert mapped + partial + todo == len(controls)
-    assert mapped == 8
-    assert partial == 3
+    assert mapped == 7
+    assert partial == 4
     assert todo == 2
 
 
@@ -254,8 +254,8 @@ def test_build_evidence_pack_wellformed(tmp_path: Path) -> None:
     assert (
         pack.controls_mapped + pack.controls_partial + pack.controls_organisational + pack.controls_todo == n_controls
     )
-    assert pack.controls_mapped == 8
-    assert pack.controls_partial == 3
+    assert pack.controls_mapped == 7
+    assert pack.controls_partial == 4
     assert pack.controls_todo == 2
     assert out.is_file()
 
@@ -333,8 +333,8 @@ def test_cosai_mapping_page_and_map_stay_in_sync() -> None:
     )
 
     # Validate count summary sentence on the doc page
-    assert "8 `mapped`, 3 `partial`, 2 `todo` - 13 of 13 controls counted" in text, (
-        "Status count summary line in cosai-mapping.md does not match expected 8/3/2"
+    assert "7 `mapped`, 4 `partial`, 2 `todo` - 13 of 13 controls counted" in text, (
+        "Status count summary line in cosai-mapping.md does not match expected 7/4/2"
     )
 
     missing_paths: list[str] = []
