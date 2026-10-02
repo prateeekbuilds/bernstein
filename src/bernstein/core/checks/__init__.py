@@ -15,6 +15,7 @@ from bernstein.core.checks.contract import (
 from bernstein.core.checks.registry import (
     DEFAULT_REGISTRY,
     CheckRegistry,
+    check_area,
     clear,
     get_check,
     iter_checks,
@@ -34,6 +35,7 @@ __all__ = [
     "Evidence",
     "Finding",
     "Verdict",
+    "check_area",
     "clear",
     "get_check",
     "iter_checks",

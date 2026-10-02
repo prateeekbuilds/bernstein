@@ -22,9 +22,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _check_area(check: Check) -> str:
+def check_area(check: Check) -> str:
     """Derive the area for a check from its explicit attribute or namespaced check_id."""
     return getattr(check, "area", "") or (check.check_id.split(":", 1)[0] if ":" in check.check_id else "")
+
+
+_check_area = check_area  # deprecated: back-compat alias; use check_area
 
 
 class CheckRegistry:
@@ -37,7 +40,7 @@ class CheckRegistry:
         """Register a check.
 
         Raises:
-            TypeError: If ``check`` does not conform to the :class:`Check` protocol.
+            TypeError: If ``check`` does not conform to the :class:`Check` protocol or ``check_id`` is not a string.
             ValueError: If ``check.check_id`` is invalid, not namespaced, or already registered.
         """
         if isinstance(check, type):  # type: ignore[reportUnnecessaryIsInstance]
@@ -46,6 +49,8 @@ class CheckRegistry:
             raise TypeError(f"Expected Check instance, got {type(check).__name__}")
 
         check_id = check.check_id
+        if not isinstance(check_id, str):  # type: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(f"check_id must be a string, got {type(check_id).__name__}")
         if not check_id or not check_id.strip():
             raise ValueError("check_id must be a non-empty string")
 

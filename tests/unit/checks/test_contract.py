@@ -237,6 +237,22 @@ def test_ids_are_unique_and_namespaced() -> None:
     assert registered_ids == ["security:rbac_check", "doctor:auth_status"]
 
 
+def test_register_non_string_check_id_raises() -> None:
+    """Registering a check with a non-string check_id raises TypeError."""
+    registry = CheckRegistry()
+    ev = Evidence(locator="test:loc", sha256="sha256:aabbccdd")
+    finding = Finding(check_id="ns:valid", verdict=Verdict.PASS, evidence=(ev,))
+
+    class _IntIdCheck:
+        check_id = 123
+
+        def run(self, workdir: Path | None = None) -> Finding:
+            return finding
+
+    with pytest.raises(TypeError, match="check_id must be a string"):
+        registry.register(_IntIdCheck())  # type: ignore[arg-type]
+
+
 # ---------------------------------------------------------------------------
 # 5. Two wrapped producers yield valid findings
 # ---------------------------------------------------------------------------

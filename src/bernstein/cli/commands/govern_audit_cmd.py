@@ -18,7 +18,7 @@ from bernstein.cli.helpers import console
 from bernstein.core.checks.contract import Verdict
 from bernstein.core.checks.registry import (
     DEFAULT_REGISTRY,
-    _check_area,
+    check_area,
     populate_default_checks,
 )
 
@@ -92,7 +92,7 @@ def govern_audit_cmd(
             payload = [
                 {
                     "check_id": c.check_id,
-                    "area": _check_area(c),
+                    "area": check_area(c),
                     "title": getattr(c, "title", ""),
                     "description": getattr(c, "description", ""),
                 }
@@ -108,7 +108,7 @@ def govern_audit_cmd(
         table.add_column("Description", style="dim")
 
         for c in checks:
-            table.add_row(c.check_id, _check_area(c), getattr(c, "title", ""), getattr(c, "description", ""))
+            table.add_row(c.check_id, check_area(c), getattr(c, "title", ""), getattr(c, "description", ""))
 
         console.print(table)
         console.print(f"\n[bold]{len(checks)}[/bold] check(s) matched.")
